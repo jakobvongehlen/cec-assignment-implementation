@@ -6,3 +6,4 @@ auth/
 config/
 .direnv/
 result
+creds/
