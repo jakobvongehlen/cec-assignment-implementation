@@ -20,13 +20,13 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "100m"
+        max-size: "10m"
         max-file: 5
     volumes:
       - ./auth:/app/auth
 
   notifier:
-    image: dclandau/cec-notifier
+    image: dclandau/cec-notifier:e2cd921
     command: 
       - "--secret-key" 
       - "${SECRET_KEY}"
@@ -47,7 +47,7 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "100m"
+        max-size: "10m"
         max-file: 5
     volumes:
-      - ./auth:/app/auth
+      - ./auth:/auth

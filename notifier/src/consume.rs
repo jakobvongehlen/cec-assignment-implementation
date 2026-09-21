@@ -149,15 +149,15 @@ impl Consume {
                                 let client = self.client.clone();
                                 let notifications_host = self.config.notifications_host.clone();
                                 tokio::spawn(async move {
-                                    let sleep_secs = {
-                                        let mut rng = rand::thread_rng();
-                                        rng.gen_range(0..5)
-                                    };
-                                    time::sleep(Duration::from_millis(sleep_secs * 1000)).await;
+                                    // let sleep_secs = {
+                                    //     let mut rng = rand::thread_rng();
+                                    //     rng.gen_range(0..5)
+                                    // };
+                                    // time::sleep(Duration::from_millis(sleep_secs * 1000)).await;
                                     map.insert("notification_type", "OutOfRange".into());
                                     client
                                         .post(format!(
-                                            "http://{}:3000/api/notify",
+                                            "{}/api/notify",
                                             notifications_host
                                         ))
                                         .query(&[("token", token)])
@@ -172,15 +172,15 @@ impl Consume {
                                 let client = self.client.clone();
                                 let notifications_host = self.config.notifications_host.clone();
                                 tokio::spawn(async move {
-                                    let sleep_secs = {
-                                        let mut rng = rand::thread_rng();
-                                        rng.gen_range(0..5)
-                                    };
-                                    time::sleep(Duration::from_millis(sleep_secs * 1000)).await;
+                                    // let sleep_secs = {
+                                    //     let mut rng = rand::thread_rng();
+                                    //     rng.gen_range(0..5)
+                                    // };
+                                    // time::sleep(Duration::from_millis(sleep_secs * 1000)).await;
                                     map.insert("notification_type", "Stabilized".into());
                                     client
                                         .post(format!(
-                                            "http://{}:3000/api/notify",
+                                            "{}/api/notify",
                                             notifications_host
                                         ))
                                         .query(&[("token", token)])
