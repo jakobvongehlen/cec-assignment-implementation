@@ -1,7 +1,9 @@
+use time::{format_description, UtcOffset};
 use clap::{command, value_parser, Arg, ArgAction};
-use futures::future;
 use std::process;
 use tokio::sync::mpsc;
+use tracing::{Instrument, Level, span, info, error};
+use tracing_subscriber::{filter::{LevelFilter, EnvFilter}, fmt::time::OffsetTime, prelude::*};
 
 mod consume;
 mod experiment;
@@ -13,10 +15,51 @@ mod request;
 use crate::consume::{Consume, ConsumeConfiguration};
 use crate::receiver::{ExperimentReceiver, ExperimentReceiverConfig};
 
+fn configure_tracing() {
+    let mut layers = vec![];
+
+    let offset = UtcOffset::from_hms(2, 0, 0).expect("Should get CET offset");
+    let time_format = format_description::parse(
+        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6][offset_hour sign:mandatory]",
+    )
+    .expect("format string should be valid");
+    let timer = OffsetTime::new(offset, time_format);
+
+    layers.push(
+        tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_timer(timer)
+            .with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            )
+            .boxed(),
+    );
+
+    tracing_subscriber::registry().with(layers).init();
+}
+
+fn raise_fd_limit(soft: u64) -> Option<()> {
+    if let Ok((_, hard)) = rlimit::Resource::NOFILE.get() {
+        if soft > hard {
+            error!("new soft limit is greater than hard limit: {} > {}", soft, hard);
+            return None;
+        }
+        let _ = rlimit::Resource::NOFILE.set(soft, hard);
+        info!("increase open files soft limit to 2048");
+    }
+    Some(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    configure_tracing();
+    info!("initialized tracing");
+
+    raise_fd_limit(2048).expect("failed to increase open files rlimit");
     ctrlc::set_handler(move || {
-        println!("received Ctrl+C!");
+        info!("received SIGINT");
         process::exit(0);
     })
     .expect("Error setting Ctrl-C handler");
@@ -130,8 +173,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let receiver_config = ExperimentReceiverConfig::from(&mut matches);
     let receiver = ExperimentReceiver::new(receiver_config, experiment_rx);
     let receiver_handle = tokio::spawn(receiver.start());
+
     tokio::spawn(async move {
-        consume.start(experiment_tx).await;
+        let span = span!(
+            Level::INFO,
+            "consumer",
+        );
+        consume.start(experiment_tx).instrument(span).await;
     });
     receiver_handle.await.expect("Join should not fail");
     Ok(())
