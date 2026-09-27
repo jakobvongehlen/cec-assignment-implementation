@@ -1,0 +1,172 @@
+from collections import defaultdict
+import io
+import logging
+import json
+import random
+import click
+from avro.datafile import DataFileReader
+from avro.io import DatumReader
+from confluent_kafka import Consumer
+import psycopg2
+
+fmt = "\033[36m%(asctime)s\033[0m [%(levelname)s] %(message)s"
+logging.basicConfig(level=logging.INFO, format=fmt, datefmt="%H:%M:%S")
+
+logging.addLevelName(logging.INFO, "\033[32mINFO\033[0m")       # Green
+logging.addLevelName(logging.WARNING, "\033[33mWARN\033[0m")      # Yellow
+logging.addLevelName(logging.ERROR, "\033[31mERROR\033[0m")      # Red
+logger = logging.getLogger(__name__)
+
+DB_CONFIG = "dbname=temp_db user=postgres password=cec host=mypg"
+
+class Experiment():
+    def __init__(self, experiment_id, tmp_upper_threshold, tmp_lower_threshold, num_sensors):
+        self.experiment_id = experiment_id
+        self.researcher = None
+        self.num_sensors = num_sensors
+        self.tmp_upper_threshold = tmp_upper_threshold
+        self.tmp_lower_threshold = tmp_lower_threshold
+
+        self.phase = "experiment_configured"
+
+        self.stabilized = False
+        self.measurements = defaultdict(list)
+
+def persist_measurement(cur, record, avg_temp, m_hash, out_of_range):
+    """Persists the average temperature measurement to the database."""
+    m_hash = record["measurement_hash"]
+    cur.execute(
+        """
+        INSERT INTO measurements 
+        (measurement_id, experiment_id, timestamp, temperature, measurement_hash, out_of_range) 
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (
+            record["measurement_id"],
+            record["experiment"],
+            record["timestamp"],
+            avg_temp,
+            m_hash,
+            out_of_range,
+        ),
+    )
+
+def process_measurement(record, event_type, experiment, cur):
+    """Processes temperature readings, checks experiment stabilization, and aggregates sensors."""
+    temp = record.get("temperature")
+
+    # Check for stabilization
+    if (
+        experiment.phase == "stabilization_started"
+        and temp is not None
+        and experiment.stabilized is False
+        and experiment.tmp_lower_threshold <= temp <= experiment.tmp_upper_threshold
+    ):
+        experiment.stabilized = True
+        logger.info("Stabilization reached")
+        # TODO: NOTIFY THE NOTIFICATION SERVICE
+
+    # Handle sensor aggregation
+    m_hash = record["measurement_hash"]
+    measurement_id = record["measurement_id"]
+    experiment.measurements[measurement_id].append(temp)
+
+    if len(experiment.measurements[measurement_id]) == experiment.num_sensors:
+        temps = experiment.measurements.pop(measurement_id)
+        avg_temp = sum(temps) / experiment.num_sensors
+        logger.info(f"Avg. temperature for experiment {experiment.experiment_id} (measurement {measurement_id}): {avg_temp}")
+
+        if experiment.phase == "experiment_started":
+            out_of_range = not (experiment.tmp_lower_threshold <= avg_temp <= experiment.tmp_upper_threshold)
+            if out_of_range:
+                logger.warning("OUT OF RANGE for %s: %f", experiment.experiment_id, avg_temp)
+                # TODO: NOTIFY THE NOTIFICATION SERVICE
+
+            try:
+                persist_measurement(cur, record, avg_temp, m_hash, out_of_range)
+            except Exception as e:
+                logger.error("DB insert failed for experiment %s: %s", exp_id, e)
+
+    return experiment
+
+def process_event(event_type: str, record, experiments: dict, cur):
+    """Routes events based on their type."""
+    experiment_id = record.get("experiment")
+
+    match event_type:
+        case "experiment_configured":
+            temp_range = record.get("temperature_range") or {}
+            sensors = record.get("sensors") or []
+            experiments[experiment_id] = Experiment(
+                experiment_id=experiment_id,
+                tmp_upper_threshold=temp_range.get("upper_threshold"),
+                tmp_lower_threshold=temp_range.get("lower_threshold"),
+                num_sensors=len(sensors),
+            )
+            logger.info("Configured experiment: %s", experiment_id)
+
+        case "stabilization_started" | "experiment_started":
+            if exp := experiments.get(experiment_id):
+                exp.phase = event_type
+                logger.info(f"Experiment {experiment_id} transitioned to {event_type}")
+            else:
+                logger.warning(f"Received {event_type} for unknown experiment {experiment_id}")
+
+        case "sensor_temperature_measured":
+            if exp := experiments.get(experiment_id):
+                process_measurement(record, event_type, exp, cur)
+            else:
+                logger.warning(f"Received measurement for unknown experiment {experiment_id}")
+
+        case _:
+            logger.info(f"Experiment {experiment_id} terminated.")
+            experiments.pop(experiment_id, None)
+            # TODO: NOTIFY THE NOTIFICATION SERVICE
+
+@click.command()
+@click.argument('topic')
+def consume(topic: str):
+    consumer = Consumer({
+        'bootstrap.servers': 'kafka.cec.dlandau.nl:19092,kafka.cec.dlandau.nl:29092,kafka.cec.dlandau.nl:39092',
+        'group.id': f"{random.random()}",
+        'auto.offset.reset': 'latest',
+        'enable.auto.commit': 'true',
+        'security.protocol': 'SSL',
+        'ssl.ca.location': './auth/ca.crt',
+        'ssl.keystore.location': './auth/kafka.keystore.pkcs12',
+        'ssl.keystore.password': 'cc2023',
+        'ssl.endpoint.identification.algorithm': 'none',
+    })
+    consumer.subscribe([topic], on_assign=lambda _, p_list: logger.info(p_list))
+
+    conn = psycopg2.connect(DB_CONFIG)
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    experiments = {}
+
+    try:
+        while True:
+            msg = consumer.poll(1.0)
+            if msg is None:
+                continue
+            if msg.error():
+                logger.error(f"Consumer error: {msg.error()}")
+                continue
+
+            kafka_headers = dict(msg.headers() or [])
+            event_type = kafka_headers.get("record_name", b"").decode("utf-8")
+
+            with DataFileReader(io.BytesIO(msg.value()), DatumReader()) as reader:
+                record = next(reader)
+            process_event(event_type, record, experiments, cur)
+
+    except KeyboardInterrupt:
+        logger.info("\nStopping consumer...")
+    finally:
+        consumer.close()
+        cur.close()
+        conn.close()
+
+if __name__ == '__main__':
+    consume()
