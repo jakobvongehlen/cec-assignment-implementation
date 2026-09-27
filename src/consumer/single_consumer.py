@@ -74,7 +74,7 @@ def process_measurement(record, event_type, experiment, cur):
     if len(experiment.measurements[measurement_id]) == experiment.num_sensors:
         temps = experiment.measurements.pop(measurement_id)
         avg_temp = sum(temps) / experiment.num_sensors
-        logger.info("Average temperature for %s (%s): %f", experiment.experiment_id, measurement_id, avg_temp)
+        logger.info(f"Avg. temperature for experiment {experiment.experiment_id} (measurement {measurement_id}): {avg_temp}")
 
         if experiment.phase == "experiment_started":
             out_of_range = not (experiment.tmp_lower_threshold <= avg_temp <= experiment.tmp_upper_threshold)
@@ -82,7 +82,10 @@ def process_measurement(record, event_type, experiment, cur):
                 logger.warning("OUT OF RANGE for %s: %f", experiment.experiment_id, avg_temp)
                 # TODO: NOTIFY THE NOTIFICATION SERVICE
 
-            persist_measurement(cur, record, avg_temp, m_hash, out_of_range)
+            try:
+                persist_measurement(cur, record, avg_temp, m_hash, out_of_range)
+            except Exception as e:
+                logger.error("DB insert failed for experiment %s: %s", exp_id, e)
 
     return experiment
 
