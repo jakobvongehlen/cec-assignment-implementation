@@ -1,4 +1,4 @@
-confluent-kafka==2.2.0
+confluent-kafka>=2.3,<3
 click==8.0.3
 avro==1.11.1
-psycopg2
+psycopg2-binary>=2.9.13,<3

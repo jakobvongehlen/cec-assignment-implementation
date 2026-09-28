@@ -7,3 +7,5 @@ config/
 .direnv/
 result
 creds/
+.venv/
+__pycache__/
