@@ -96,7 +96,7 @@ def process_measurement(record, event_type, experiment, cur):
             try:
                 persist_measurement(cur, record, avg_temp, m_hash, out_of_range)
             except Exception as e:
-                logger.error("DB insert failed for experiment %s: %s", exp_id, e)
+                logger.error("DB insert failed for experiment %s: %s", experiment.experiment_id, e)
 
     return experiment
 
