@@ -27,6 +27,7 @@ class Experiment():
         self.tmp_upper_threshold = tmp_upper_threshold
         self.tmp_lower_threshold = tmp_lower_threshold
 
+        self.out_of_range = True
         self.phase = "experiment_configured"
 
         self.stabilized = False
@@ -80,10 +81,18 @@ def process_measurement(record, event_type, experiment, cur):
 
         if experiment.phase == "experiment_started":
             out_of_range = not (experiment.tmp_lower_threshold <= avg_temp <= experiment.tmp_upper_threshold)
-            if out_of_range:
+
+            # Handle out-of-range state changes
+            if out_of_range and experiment.out_of_range is False:
                 logger.warning("OUT OF RANGE for %s: %f", experiment.experiment_id, avg_temp)
                 # TODO: NOTIFY THE NOTIFICATION SERVICE
+                experiment.out_of_range = True
 
+            # Handle transition back to in-range
+            elif not out_of_range and experiment.out_of_range is True:
+                experiment.out_of_range = False
+
+            # Store the measurement in the database enabling the REST API to query it later
             try:
                 persist_measurement(cur, record, avg_temp, m_hash, out_of_range)
             except Exception as e:
