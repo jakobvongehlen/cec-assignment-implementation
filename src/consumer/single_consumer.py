@@ -13,8 +13,8 @@ fmt = "\033[36m%(asctime)s\033[0m [%(levelname)s] %(message)s"
 logging.basicConfig(level=logging.INFO, format=fmt, datefmt="%H:%M:%S")
 
 logging.addLevelName(logging.INFO, "\033[32mINFO\033[0m")       # Green
-logging.addLevelName(logging.WARNING, "\033[33mWARN\033[0m")      # Yellow
-logging.addLevelName(logging.ERROR, "\033[31mERROR\033[0m")      # Red
+logging.addLevelName(logging.WARNING, "\033[33mWARN\033[0m")    # Yellow
+logging.addLevelName(logging.ERROR, "\033[31mERROR\033[0m")     # Red
 logger = logging.getLogger(__name__)
 
 DB_CONFIG = "dbname=temp_db user=postgres password=cec host=mypg"
@@ -55,17 +55,6 @@ def process_measurement(record, event_type, experiment, cur):
     """Processes temperature readings, checks experiment stabilization, and aggregates sensors."""
     temp = record.get("temperature")
 
-    # Check for stabilization
-    if (
-        experiment.phase == "stabilization_started"
-        and temp is not None
-        and experiment.stabilized is False
-        and experiment.tmp_lower_threshold <= temp <= experiment.tmp_upper_threshold
-    ):
-        experiment.stabilized = True
-        logger.info("Stabilization reached")
-        # TODO: NOTIFY THE NOTIFICATION SERVICE
-
     # Handle sensor aggregation
     m_hash = record["measurement_hash"]
     measurement_id = record["measurement_id"]
@@ -74,6 +63,19 @@ def process_measurement(record, event_type, experiment, cur):
     if len(experiment.measurements[measurement_id]) == experiment.num_sensors:
         temps = experiment.measurements.pop(measurement_id)
         avg_temp = sum(temps) / experiment.num_sensors
+
+        # Check for stabilization
+        if (
+            experiment.phase == "stabilization_started"
+            and avg_temp is not None
+            and experiment.stabilized is False
+            and experiment.tmp_lower_threshold <= avg_temp <= experiment.tmp_upper_threshold
+        ):
+            experiment.stabilized = True
+            logger.info("Stabilization reached")
+            # TODO: NOTIFY THE NOTIFICATION SERVICE
+            return experiment
+
         logger.info(f"Avg. temperature for experiment {experiment.experiment_id} (measurement {measurement_id}): {avg_temp}")
 
         if experiment.phase == "experiment_started":
@@ -118,7 +120,7 @@ def process_event(event_type: str, record, experiments: dict, cur):
             else:
                 logger.warning(f"Received measurement for unknown experiment {experiment_id}")
 
-        case _:
+        case "experiment_terminated":
             logger.info(f"Experiment {experiment_id} terminated.")
             experiments.pop(experiment_id, None)
             # TODO: NOTIFY THE NOTIFICATION SERVICE
