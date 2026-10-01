@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 DB_CONFIG = "dbname=temp_db user=postgres password=cec host=mypg"
 
 class Experiment():
-    def __init__(self, experiment_id, tmp_upper_threshold, tmp_lower_threshold, num_sensors):
+    def __init__(self, experiment_id, tmp_upper_threshold, tmp_lower_threshold, num_sensors, researcher=None):
         self.experiment_id = experiment_id
-        self.researcher = None
+        self.researcher = researcher
         self.num_sensors = num_sensors
         self.tmp_upper_threshold = tmp_upper_threshold
         self.tmp_lower_threshold = tmp_lower_threshold
@@ -108,13 +108,15 @@ def process_event(event_type: str, record, experiments: dict, cur):
         case "experiment_configured":
             temp_range = record.get("temperature_range") or {}
             sensors = record.get("sensors") or []
+            researcher = record.get("researcher")
             experiments[experiment_id] = Experiment(
                 experiment_id=experiment_id,
                 tmp_upper_threshold=temp_range.get("upper_threshold"),
                 tmp_lower_threshold=temp_range.get("lower_threshold"),
                 num_sensors=len(sensors),
+                researcher=researcher,
             )
-            logger.info("Configured experiment: %s", experiment_id)
+            logger.info("Configured experiment: %s (researcher: %s)", experiment_id, researcher)
 
         case "stabilization_started" | "experiment_started":
             if exp := experiments.get(experiment_id):
