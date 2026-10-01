@@ -9,3 +9,5 @@ result
 creds/
 .venv/
 __pycache__/
+files/
+.DS_Store
