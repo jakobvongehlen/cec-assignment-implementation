@@ -11,3 +11,5 @@ creds/
 __pycache__/
 files/
 .DS_Store
+tests/
+test_notifier*
