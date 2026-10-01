@@ -6,6 +6,7 @@ COPY ./requirements.txt ./
 RUN pip install -r requirements.txt
 
 COPY ./single_consumer.py ./
+COPY ./notifier.py ./
 
 VOLUME ["/usr/src/app/auth"]
 
