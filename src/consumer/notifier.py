@@ -15,11 +15,17 @@ NOTIFICATION_TYPE_OUT_OF_RANGE = "OutOfRange"
 VALID_NOTIFICATION_TYPES = {NOTIFICATION_TYPE_STABILIZED, NOTIFICATION_TYPE_OUT_OF_RANGE}
 
 
-def _resolve_token() -> Optional[str]:
+def _resolve_token(host: str) -> Optional[str]:
     """resolves the notification token from env or credentials file."""
-    # check environment variable
+    # check explicit environment variable first
     if token := os.environ.get("NOTIFICATIONS_TOKEN"):
+        if token.lower() in ("none", "false", "0", ""):
+            return None
         return token.strip()
+
+    # only attach credentials token for the remote demo server
+    if "cec.dlandau.nl" not in host:
+        return None
 
     # check credentials file in ./auth/token
     token_path = os.environ.get("NOTIFICATIONS_TOKEN_PATH", "./auth/token")
@@ -57,7 +63,7 @@ class NotificationClient:
         # local default: http://localhost:3000
         # demo host: https://notifications.cec.dlandau.nl
         self.host = (host or os.environ.get("NOTIFICATIONS_HOST", "http://localhost:3000")).rstrip("/")
-        self.token = token if token is not None else _resolve_token()
+        self.token = token if token is not None else _resolve_token(self.host)
         self.timeout = timeout
         self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="notifier-worker")
 
