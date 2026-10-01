@@ -9,6 +9,8 @@ from avro.io import DatumReader
 from confluent_kafka import Consumer
 import psycopg2
 
+from notifier import default_notifier
+
 fmt = "\033[36m%(asctime)s\033[0m [%(levelname)s] %(message)s"
 logging.basicConfig(level=logging.INFO, format=fmt, datefmt="%H:%M:%S")
 
@@ -73,8 +75,15 @@ def process_measurement(record, event_type, experiment, cur):
             and experiment.tmp_lower_threshold <= avg_temp <= experiment.tmp_upper_threshold
         ):
             experiment.stabilized = True
-            logger.info("Stabilization reached")
-            # TODO: NOTIFY THE NOTIFICATION SERVICE
+            experiment.out_of_range = False
+            logger.info("Stabilization reached for experiment %s", experiment.experiment_id)
+            # NOTIFY THE NOTIFICATION SERVICE
+            default_notifier.notify_stabilized(
+                researcher=experiment.researcher,
+                experiment_id=experiment.experiment_id,
+                measurement_id=measurement_id,
+                cipher_data=m_hash,
+            )
             return experiment
 
         logger.info(f"Avg. temperature for experiment {experiment.experiment_id} (measurement {measurement_id}): {avg_temp}")
@@ -85,7 +94,13 @@ def process_measurement(record, event_type, experiment, cur):
             # Handle out-of-range state changes
             if out_of_range and experiment.out_of_range is False:
                 logger.warning("OUT OF RANGE for %s: %f", experiment.experiment_id, avg_temp)
-                # TODO: NOTIFY THE NOTIFICATION SERVICE
+                # NOTIFY THE NOTIFICATION SERVICE
+                default_notifier.notify_out_of_range(
+                    researcher=experiment.researcher,
+                    experiment_id=experiment.experiment_id,
+                    measurement_id=measurement_id,
+                    cipher_data=m_hash,
+                )
                 experiment.out_of_range = True
 
             # Handle transition back to in-range
@@ -180,6 +195,7 @@ def consume(topic: str):
         consumer.close()
         cur.close()
         conn.close()
+        default_notifier.shutdown(wait=False)
 
 if __name__ == '__main__':
     consume()
