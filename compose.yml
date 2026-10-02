@@ -32,6 +32,10 @@ services:
 
   api:
     build: ./src/http-api
+    environment:
+      # one uvicorn worker per core; each keeps POOL_SIZE DB connections
+      WORKERS: ${API_WORKERS:-2}
+      POOL_SIZE: ${API_POOL_SIZE:-10}
     ports:
       - "3003:3003"
     depends_on:
