@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 
 import asyncpg
@@ -13,20 +14,41 @@ DATABASE_URL = os.environ.get(
 # connections per worker process; total = WORKERS * POOL_SIZE
 POOL_SIZE = int(os.environ.get("POOL_SIZE", "10"))
 WORKERS = int(os.environ.get("WORKERS", "2"))
+# cached responses per worker process, oldest evicted first
+CACHE_SIZE = int(os.environ.get("CACHE_SIZE", "10000"))
 
-# Postgres builds the JSON array, so Python only passes the text through
+# Postgres builds the JSON array, so Python only passes the text through.
+# Each query also reports whether the experiment is terminated; both come from
+# the same statement snapshot, so a terminated result is guaranteed complete.
+TERMINATED_SQL = "EXISTS (SELECT 1 FROM experiments_terminated WHERE experiment_id = $1)"
 TEMPERATURE_SQL = (
-    "SELECT COALESCE(json_agg(json_build_object('timestamp', timestamp, 'temperature', temperature) "
+    "SELECT (SELECT COALESCE(json_agg(json_build_object('timestamp', timestamp, 'temperature', temperature) "
     "ORDER BY timestamp), '[]')::text FROM measurements "
-    "WHERE experiment_id = $1 AND timestamp >= $2 AND timestamp <= $3"
+    "WHERE experiment_id = $1 AND timestamp >= $2 AND timestamp <= $3), " + TERMINATED_SQL
 )
 OUT_OF_RANGE_SQL = (
-    "SELECT COALESCE(json_agg(json_build_object('timestamp', timestamp, 'temperature', temperature) "
+    "SELECT (SELECT COALESCE(json_agg(json_build_object('timestamp', timestamp, 'temperature', temperature) "
     "ORDER BY timestamp), '[]')::text FROM measurements "
-    "WHERE experiment_id = $1 AND out_of_range = TRUE"
+    "WHERE experiment_id = $1 AND out_of_range = TRUE), " + TERMINATED_SQL
 )
 
 pool = None
+# Terminated experiments never receive new measurements, so their responses
+# can be kept forever. Running experiments always go to the database.
+cache = OrderedDict()
+
+
+async def cached_query(key, sql, *args):
+    body = cache.get(key)
+    if body is not None:
+        cache.move_to_end(key)
+        return body
+    body, terminated = await pool.fetchrow(sql, *args)
+    if terminated and CACHE_SIZE > 0:
+        cache[key] = body
+        if len(cache) > CACHE_SIZE:
+            cache.popitem(last=False)
+    return body
 
 
 @asynccontextmanager
@@ -47,13 +69,16 @@ async def temperature(
     start_time: float = Query(alias="start-time"),
     end_time: float = Query(alias="end-time"),
 ):
-    body = await pool.fetchval(TEMPERATURE_SQL, experiment_id, start_time, end_time)
+    body = await cached_query(
+        ("temperature", experiment_id, start_time, end_time),
+        TEMPERATURE_SQL, experiment_id, start_time, end_time,
+    )
     return Response(content=body, media_type="application/json")
 
 
 @app.get("/temperature/out-of-range")
 async def out_of_range(experiment_id: str = Query(alias="experiment-id")):
-    body = await pool.fetchval(OUT_OF_RANGE_SQL, experiment_id)
+    body = await cached_query(("out-of-range", experiment_id), OUT_OF_RANGE_SQL, experiment_id)
     return Response(content=body, media_type="application/json")
 
 
