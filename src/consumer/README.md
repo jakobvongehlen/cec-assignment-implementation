@@ -16,7 +16,7 @@ The database container was created using the following command:
 docker run -d --network cec-net --name mypg -e POSTGRES_PASSWORD=cec -e POSTGRES_DB=temp_db -p 5432:5432 postgres:16
 ```
 
-The above command automatically pulls the `postgres:16` image, creates the `mypg` container, which contains the database with the specified password and database name, and connects the default port on which PostgreSQL listens to a port on the host machine. We use the same port number for convenience.
+The above command automatically pulls the `postgres:16` image, creates the `mypg` container, which contains the database with the specified password and database name, and connects the default port on which PostgreSQL listens to, to a port on the host machine. We use the same port number for convenience.
 
 We then created our main table, which holds the measurements for the experiments (only the averages), using the following command:
 

@@ -54,6 +54,17 @@ def persist_measurement(cur, record, avg_temp, m_hash, out_of_range):
         ),
     )
 
+def persist_experiment_termination(cur, experiment_id, finished_at):
+    """Persists the experiment termination event to the database."""
+    cur.execute(
+        """
+        INSERT INTO experiments_finished 
+        (experiment_id, finished_at) 
+        VALUES (%s, %s)
+        """,
+        (experiment_id, finished_at),
+    )
+
 def process_measurement(record, event_type, experiment, cur):
     """Processes temperature readings, checks experiment stabilization, and aggregates sensors."""
     temp = record.get("temperature")
@@ -77,7 +88,7 @@ def process_measurement(record, event_type, experiment, cur):
             experiment.stabilized = True
             experiment.out_of_range = False
             logger.info("Stabilization reached for experiment %s", experiment.experiment_id)
-            # NOTIFY THE NOTIFICATION SERVICE
+            
             default_notifier.notify_stabilized(
                 researcher=experiment.researcher,
                 experiment_id=experiment.experiment_id,
@@ -148,8 +159,11 @@ def process_event(event_type: str, record, experiments: dict, cur):
 
         case "experiment_terminated":
             logger.info(f"Experiment {experiment_id} terminated.")
+            try:
+                persist_experiment_termination(cur, experiment_id, record.get("finished_at"))
+            except Exception as e:
+                logger.error("DB insert failed for experiment termination %s: %s", experiment_id, e)
             experiments.pop(experiment_id, None)
-            # TODO: NOTIFY THE NOTIFICATION SERVICE
 
 @click.command()
 @click.argument('topic')
