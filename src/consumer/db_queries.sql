@@ -11,7 +11,7 @@ CREATE TABLE measurements (
 -- For creating experiments_terminated table, supports fast lookup of terminated experiments
 CREATE TABLE experiments_terminated (
     experiment_id TEXT PRIMARY KEY,
-    finished_at DOUBLE PRECISION NOT NULL
+    terminated_at DOUBLE PRECISION NOT NULL
 );
 
 -- Supports /temperature

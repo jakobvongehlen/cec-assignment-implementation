@@ -54,15 +54,15 @@ def persist_measurement(cur, record, avg_temp, m_hash, out_of_range):
         ),
     )
 
-def persist_experiment_termination(cur, experiment_id, finished_at):
+def persist_experiment_termination(cur, experiment_id, terminated_at):
     """Persists the experiment termination event to the database."""
     cur.execute(
         """
-        INSERT INTO experiments_finished 
-        (experiment_id, finished_at) 
+        INSERT INTO experiments_terminated 
+        (experiment_id, terminated_at) 
         VALUES (%s, %s)
         """,
-        (experiment_id, finished_at),
+        (experiment_id, terminated_at),
     )
 
 def process_measurement(record, event_type, experiment, cur):
@@ -160,7 +160,7 @@ def process_event(event_type: str, record, experiments: dict, cur):
         case "experiment_terminated":
             logger.info(f"Experiment {experiment_id} terminated.")
             try:
-                persist_experiment_termination(cur, experiment_id, record.get("finished_at"))
+                persist_experiment_termination(cur, experiment_id, record.get("timestamp"))
             except Exception as e:
                 logger.error("DB insert failed for experiment termination %s: %s", experiment_id, e)
             experiments.pop(experiment_id, None)
