@@ -170,7 +170,7 @@ def process_event(event_type: str, record, experiments: dict, cur):
 def consume(topic: str):
     consumer = Consumer({
         'bootstrap.servers': 'kafka.cec.dlandau.nl:19092,kafka.cec.dlandau.nl:29092,kafka.cec.dlandau.nl:39092',
-        'group.id': f"{random.random()}",
+        'group.id': "my_group",
         'auto.offset.reset': 'latest',
         'enable.auto.commit': 'true',
         'security.protocol': 'SSL',
