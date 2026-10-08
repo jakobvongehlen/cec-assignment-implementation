@@ -1,11 +1,12 @@
 import json
 import logging
 import os
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class NotificationClient:
         token: Optional[str] = None,
         max_workers: int = 5,
         timeout: float = 5.0,
+        on_latency: Optional[Callable[[float, dict], None]] = None,
     ):
         # base host can be set via env var NOTIFICATIONS_HOST
         # local default: http://localhost:3000
@@ -66,6 +68,15 @@ class NotificationClient:
         self.token = token if token is not None else _resolve_token(self.host)
         self.timeout = timeout
         self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="notifier-worker")
+        self.on_latency = on_latency
+
+        # Latency metrics & SLA tracking (< 10.0s requirement)
+        self._stats_lock = threading.Lock()
+        self.total_sent = 0
+        self.total_latency = 0.0
+        self.min_latency = float("inf")
+        self.max_latency = 0.0
+        self.sla_violations = 0
 
     def _build_url(self) -> str:
         """constructs the notification endpoint url, attaching the token query parameter if present."""
@@ -94,16 +105,44 @@ class NotificationClient:
                 status = resp.status
                 body = resp.read().decode("utf-8").strip()
                 if status == 200:
-                    logger.info(
-                        "Notification sent successfully [%s] for experiment=%s, measurement=%s. Service latency: %s",
-                        payload.get("notification_type"),
-                        payload.get("experiment_id"),
-                        payload.get("measurement_id"),
-                        body,
-                    )
+                    latency = None
                     try:
-                        return float(body)
+                        latency = float(body)
                     except ValueError:
+                        pass
+
+                    if latency is not None:
+                        with self._stats_lock:
+                            self.total_sent += 1
+                            self.total_latency += latency
+                            self.min_latency = min(self.min_latency, latency)
+                            self.max_latency = max(self.max_latency, latency)
+                            if latency >= 10.0:
+                                self.sla_violations += 1
+
+                        logger.info(
+                            "Notification sent successfully [%s] for experiment=%s, measurement=%s. Service latency: %s",
+                            payload.get("notification_type"),
+                            payload.get("experiment_id"),
+                            payload.get("measurement_id"),
+                            body,
+                        )
+
+                        if self.on_latency:
+                            try:
+                                self.on_latency(latency, payload)
+                            except Exception as cb_err:
+                                logger.warning("Error in on_latency callback: %s", cb_err)
+
+                        return latency
+                    else:
+                        logger.info(
+                            "Notification sent successfully [%s] for experiment=%s, measurement=%s. Body: %s",
+                            payload.get("notification_type"),
+                            payload.get("experiment_id"),
+                            payload.get("measurement_id"),
+                            body,
+                        )
                         return None
                 else:
                     logger.error(
@@ -204,6 +243,31 @@ class NotificationClient:
             measurement_id=measurement_id,
             cipher_data=cipher_data,
             async_send=async_send,
+        )
+
+    def get_stats(self) -> dict:
+        """Returns aggregated notification latency and SLA compliance metrics."""
+        with self._stats_lock:
+            avg_latency = (self.total_latency / self.total_sent) if self.total_sent > 0 else 0.0
+            min_lat = self.min_latency if self.total_sent > 0 else 0.0
+            return {
+                "total_sent": self.total_sent,
+                "avg_latency": avg_latency,
+                "min_latency": min_lat,
+                "max_latency": self.max_latency,
+                "sla_violations": self.sla_violations,
+            }
+
+    def log_stats_summary(self):
+        """Logs a formatted summary of notification latency and SLA metrics."""
+        stats = self.get_stats()
+        logger.info(
+            "=== Notification SLA Metrics === Sent: %d | Avg Latency: %.3fs | Min: %.3fs | Max: %.3fs | SLA Violations (>=10s): %d",
+            stats["total_sent"],
+            stats["avg_latency"],
+            stats["min_latency"],
+            stats["max_latency"],
+            stats["sla_violations"],
         )
 
     def shutdown(self, wait: bool = True):

@@ -209,6 +209,7 @@ def consume(topic: str):
         consumer.close()
         cur.close()
         conn.close()
+        default_notifier.log_stats_summary()
         default_notifier.shutdown(wait=False)
 
 if __name__ == '__main__':
