@@ -25,205 +25,206 @@ services:
       NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
     volumes:
       - ./auth:/usr/src/app/auth:ro
+      - ./logs:/usr/src/app/logs
     depends_on:
       mypg:
         condition: service_healthy
     restart: unless-stopped
 
-  consumer_2:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_2:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_3:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_3:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_4:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_4:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_5:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_5:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_6:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_6:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_7:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_7:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_8:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_8:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_9:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_9:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_10:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_10:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_11:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_11:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_12:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_12:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_13:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_13:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_14:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_14:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_15:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_15:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  consumer_16:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-    depends_on:
-      mypg:
-        condition: service_healthy
-    restart: unless-stopped
+  # consumer_16:
+  #   build: ./src/consumer
+  #   # demo data is produced to the shared `experiment` topic
+  #   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  #   environment:
+  #     NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
+  #   volumes:
+  #     - ./auth:/usr/src/app/auth:ro
+  #   depends_on:
+  #     mypg:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
   api:
     build: ./src/http-api

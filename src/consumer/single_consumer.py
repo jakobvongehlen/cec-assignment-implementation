@@ -1,4 +1,5 @@
 from collections import defaultdict
+import sys
 import io
 import logging
 import json
@@ -8,8 +9,16 @@ from avro.datafile import DataFileReader
 from avro.io import DatumReader
 from confluent_kafka import Consumer
 import psycopg2
+import signal
 
 from notifier import default_notifier
+
+def signal_handler(sig, frame):
+    logger.info("Interrupt received, grecafully shutting down.")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 fmt = "\033[36m%(asctime)s\033[0m [%(levelname)s] %(message)s"
 logging.basicConfig(level=logging.INFO, format=fmt, datefmt="%H:%M:%S")
@@ -170,7 +179,7 @@ def process_event(event_type: str, record, experiments: dict, cur):
 def consume(topic: str):
     consumer = Consumer({
         'bootstrap.servers': 'kafka.cec.dlandau.nl:19092,kafka.cec.dlandau.nl:29092,kafka.cec.dlandau.nl:39092',
-        'group.id': "my_group",
+        'group.id': "my_group_1",   # Keep the Group ID constant but change it for each iteration
         'auto.offset.reset': 'latest',
         'enable.auto.commit': 'true',
         'security.protocol': 'SSL',
@@ -206,11 +215,12 @@ def consume(topic: str):
     except KeyboardInterrupt:
         logger.info("\nStopping consumer...")
     finally:
+        print("Closing consumer and database connection...")
         consumer.close()
         cur.close()
         conn.close()
+        default_notifier.shutdown(wait=True)
         default_notifier.log_stats_summary()
-        default_notifier.shutdown(wait=False)
 
 if __name__ == '__main__':
     consume()
