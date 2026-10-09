@@ -226,10 +226,12 @@ services:
   #       condition: service_healthy
   #   restart: unless-stopped
 
+  # API_IMPL=rust deploys src/http-api-rust, unset deploys the Python API in src/http-api
   api:
-    build: ./src/http-api
+    build: ./src/http-api${API_IMPL:+-$API_IMPL}
+    image: http-api${API_IMPL:+-$API_IMPL}
     environment:
-      # one uvicorn worker per core; each keeps POOL_SIZE DB connections
+      # one uvicorn worker (Python) or thread (Rust) per core; total DB connections = WORKERS * POOL_SIZE
       WORKERS: ${API_WORKERS:-2}
       POOL_SIZE: ${API_POOL_SIZE:-10}
     ports:
