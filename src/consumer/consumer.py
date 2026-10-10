@@ -179,7 +179,7 @@ def process_event(event_type: str, record, experiments: dict, cur):
 def consume(topic: str):
     consumer = Consumer({
         'bootstrap.servers': 'kafka.cec.dlandau.nl:19092,kafka.cec.dlandau.nl:29092,kafka.cec.dlandau.nl:39092',
-        'group.id': "my_group_1",   # Keep the Group ID constant but change it for each iteration
+        'group.id': "my_group_6",   # Keep the Group ID constant but change it for each iteration
         'auto.offset.reset': 'latest',
         'enable.auto.commit': 'true',
         'security.protocol': 'SSL',
