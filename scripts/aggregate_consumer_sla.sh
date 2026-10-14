@@ -39,16 +39,16 @@ for service in "${services[@]}"; do
   docker kill --signal=INT "$cid" >/dev/null 2>&1 || true
   wait "$attach_pid" || true
 
-  metric_line=$(grep -E '=== Notification SLA Metrics ===' "$log_file" | tail -n 1 || true)
+  metric_line=$(grep -E '=== Notification SL[AO] Metrics ===' "$log_file" | tail -n 1 || true)
 
   if [[ -z "$metric_line" ]]; then
-    metric_line=$(docker logs "$cid" 2>&1 | grep -E '=== Notification SLA Metrics ===' | tail -n 1 || true)
+    metric_line=$(docker logs "$cid" 2>&1 | grep -E '=== Notification SL[AO] Metrics ===' | tail -n 1 || true)
   fi
 
   if [[ -n "$metric_line" ]]; then
     printf '%s\n' "$service: $metric_line" >> "$RESULTS_FILE"
   else
-    printf '%s\n' "$service: no final SLA summary found" >> "$RESULTS_FILE"
+    printf '%s\n' "$service: no final SLA/SLO summary found" >> "$RESULTS_FILE"
   fi
 
 done
@@ -64,7 +64,7 @@ import sys
 
 path = sys.argv[1]
 pattern = re.compile(
-    r"=== Notification SLA Metrics === Sent: (\d+) \| Avg Latency: ([0-9.]+)s \| Min: ([0-9.]+)s \| Max: ([0-9.]+)s \| SLA Violations \(>=10s\): (\d+)",
+    r"=== Notification SL[AO] Metrics === Sent: (\d+) \| Avg Latency: ([0-9.]+)s \| Min: ([0-9.]+)s \| Max: ([0-9.]+)s \| SL[AO] Violations \(>=10s\): (\d+)",
 )
 
 total_sent = 0
