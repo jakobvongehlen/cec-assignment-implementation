@@ -105,7 +105,12 @@ def report_lag(stats_json):
     CONSUMER_LAG.clear()
     for topic, topic_stats in stats.get("topics", {}).items():
         for partition, partition_stats in topic_stats.get("partitions", {}).items():
-            lag = partition_stats.get("consumer_lag", -1)
+            # librdkafka's consumer_lag counts from the committed offset, which trails
+            # by the commit interval and incomplete measurements; count from what we
+            # have read instead, once we have read anything from the partition
+            hi_offset = partition_stats.get("hi_offset", -1)
+            app_offset = partition_stats.get("app_offset", -1)
+            lag = hi_offset - app_offset if hi_offset >= 0 and app_offset >= 0 else partition_stats.get("consumer_lag", -1)
             # -1 is the internal partition or a partition not assigned to this consumer
             if partition != "-1" and lag >= 0:
                 CONSUMER_LAG.labels(topic, partition).set(lag)
