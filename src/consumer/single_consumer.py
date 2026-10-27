@@ -141,7 +141,8 @@ def process_measurement(record, event_type, experiment, cur):
             )
             return experiment
 
-        logger.info(f"Avg. temperature for experiment {experiment.experiment_id} (measurement {measurement_id}): {avg_temp}")
+        # one line per measurement: debug only, it is slower than all the metrics and fills the docker logs
+        logger.debug("Avg. temperature for experiment %s (measurement %s): %s", experiment.experiment_id, measurement_id, avg_temp)
 
         if experiment.phase == "experiment_started":
             out_of_range = not (experiment.tmp_lower_threshold <= avg_temp <= experiment.tmp_upper_threshold)
