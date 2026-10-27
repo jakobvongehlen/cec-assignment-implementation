@@ -27,7 +27,8 @@ scrape_configs:
   # App metrics of every consumer container, however many are running:
   # consumer_1 ... consumer_N, or one `consumer` service scaled with --scale
   - job_name: consumer
-    scrape_interval: 5s
+    # often, the autoscaler decides on these every 5 s
+    scrape_interval: 2s
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 10s

@@ -31,12 +31,18 @@ SERVICE = os.environ.get("SERVICE", "consumer")
 MIN_CONSUMERS = int(os.environ.get("MIN_CONSUMERS", "1"))
 MAX_CONSUMERS = int(os.environ.get("MAX_CONSUMERS", "6"))
 # seconds between decisions
-INTERVAL = float(os.environ.get("INTERVAL", "15"))
-# seconds to wait after a change, so the rebalance and the 1m rates settle
-COOLDOWN = float(os.environ.get("COOLDOWN", "60"))
+INTERVAL = float(os.environ.get("INTERVAL", "5"))
+# seconds to wait after a change before the next one: a new consumer needs a few
+# seconds to start, join the group and get partitions; scaling down waits longer
+UP_COOLDOWN = float(os.environ.get("UP_COOLDOWN", "20"))
+DOWN_COOLDOWN = float(os.environ.get("DOWN_COOLDOWN", "60"))
 # scale up when consumers are this many seconds behind, or this busy
 UP_DELAY = float(os.environ.get("UP_DELAY", "2"))
-UP_BUSY = float(os.environ.get("UP_BUSY", "0.6"))
+# below saturation, so the existing consumers have headroom while partitions move
+UP_BUSY = float(os.environ.get("UP_BUSY", "0.5"))
+# this far behind, the 10 s notification limit is at risk: scale up right away
+# and at least double the consumers
+URGENT_DELAY = float(os.environ.get("URGENT_DELAY", "5"))
 # busy share to aim for when scaling up
 TARGET_BUSY = float(os.environ.get("TARGET_BUSY", "0.5"))
 # scale down when one consumer less would still be below this, and nothing is behind
@@ -44,14 +50,14 @@ DOWN_DELAY = float(os.environ.get("DOWN_DELAY", "0.5"))
 DOWN_BUSY = float(os.environ.get("DOWN_BUSY", "0.4"))
 # consecutive checks needed, scaling down is slower than up
 UP_CHECKS = int(os.environ.get("UP_CHECKS", "2"))
-DOWN_CHECKS = int(os.environ.get("DOWN_CHECKS", "8"))
+DOWN_CHECKS = int(os.environ.get("DOWN_CHECKS", "24"))
 # no consumers are added above this VM CPU share
 MAX_VM_CPU = float(os.environ.get("MAX_VM_CPU", "0.9"))
 
 QUERIES = {
     "lag": "sum(consumer_lag_messages)",
-    "rate": "sum(rate(consumer_messages_total[1m]))",
-    "busy": "avg(rate(consumer_message_processing_seconds_sum[1m]))",
+    "rate": "sum(rate(consumer_messages_total[30s]))",
+    "busy": "avg(rate(consumer_message_processing_seconds_sum[30s]))",
     "partitions": "max(consumer_topic_partitions)",
     "vm_cpu": "cec:node:vcpus_used / cec:node:vcpus",
 }
@@ -118,7 +124,7 @@ class Replicas:
 def main():
     replicas = Replicas()
     logger.info("Scaling %s of project %s between %d and %d", SERVICE, replicas.project, MIN_CONSUMERS, MAX_CONSUMERS)
-    up_checks = down_checks = 0
+    up_checks = down_checks = checks = 0
     last_change = 0.0
     while True:
         time.sleep(INTERVAL)
@@ -142,35 +148,41 @@ def main():
         limit = min(MAX_CONSUMERS, int(m["partitions"])) if m["partitions"] else MAX_CONSUMERS
         vm_cpu = m["vm_cpu"]
 
+        urgent = delay > URGENT_DELAY and n < limit
         up = (delay > UP_DELAY or busy > UP_BUSY) and n < limit
         down = n > MIN_CONSUMERS and delay < DOWN_DELAY and busy * n / (n - 1) < DOWN_BUSY
         up_checks = up_checks + 1 if up else 0
         down_checks = down_checks + 1 if down else 0
-        logger.info(
-            "consumers=%d/%d lag=%.0f rate=%.0f/s delay=%.1fs busy=%.2f vm_cpu=%s up=%d/%d down=%d/%d",
-            n, limit, lag, rate, delay, busy, "?" if vm_cpu is None else f"{vm_cpu:.2f}",
-            up_checks, UP_CHECKS, down_checks, DOWN_CHECKS,
-        )
+        # every check while something happens, otherwise once a minute
+        checks += 1
+        if up or down_checks or delay > DOWN_DELAY or checks % max(1, int(60 / INTERVAL)) == 0:
+            logger.info(
+                "consumers=%d/%d lag=%.0f rate=%.0f/s delay=%.1fs busy=%.2f vm_cpu=%s up=%d/%d down=%d/%d",
+                n, limit, lag, rate, delay, busy, "?" if vm_cpu is None else f"{vm_cpu:.2f}",
+                up_checks, UP_CHECKS, down_checks, DOWN_CHECKS,
+            )
 
-        if time.monotonic() - last_change < COOLDOWN:
-            continue
-        if up_checks >= UP_CHECKS:
+        since_change = time.monotonic() - last_change
+        if (urgent or up_checks >= UP_CHECKS) and since_change >= UP_COOLDOWN:
             if vm_cpu is not None and vm_cpu > MAX_VM_CPU:
                 logger.warning("VM CPU at %.0f%%, another consumer would not be faster", vm_cpu * 100)
                 continue
-            # enough consumers to bring the busy share down to the target, at least one more
-            target = min(limit, max(n + 1, math.ceil(n * busy / TARGET_BUSY)))
-            logger.info("Scaling up from %d to %d consumers", n, target)
+            # enough consumers to bring the busy share down to the target, at least one more;
+            # when far behind at least twice as many, the backlog has to be worked off as well
+            target = max(n + 1, math.ceil(n * busy / TARGET_BUSY))
+            if urgent:
+                target = max(target, 2 * n)
+            target = min(limit, target)
+            logger.info("Scaling up from %d to %d consumers%s", n, target, " (urgent)" if urgent else "")
             for _ in range(target - n):
                 replicas.add(containers[0])
-        elif down_checks >= DOWN_CHECKS:
+        elif down_checks >= DOWN_CHECKS and since_change >= DOWN_COOLDOWN:
             logger.info("Scaling down from %d to %d consumers", n, n - 1)
             replicas.remove(containers[-1])
         else:
             continue
         up_checks = down_checks = 0
         last_change = time.monotonic()
-
 
 if __name__ == "__main__":
     main()

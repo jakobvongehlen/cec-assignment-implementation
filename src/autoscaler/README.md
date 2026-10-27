@@ -4,18 +4,20 @@ Scales the `consumer` service between `MIN_CONSUMERS` and `MAX_CONSUMERS` contai
 
 ## How it decides
 
-Every 15 s it reads from Prometheus:
+Every 5 s it reads from Prometheus (the consumers report lag every 2 s and are scraped every 2 s):
 
 | Signal | Query | Meaning |
 |---|---|---|
 | delay | Kafka lag / consume rate | Seconds the consumers are behind. Notifications must arrive within 10 s. |
-| busy | `rate(consumer_message_processing_seconds_sum[1m])`, averaged | Share of time a consumer is processing. One consumer is one Python thread, so 1.0 is saturated. |
+| busy | `rate(consumer_message_processing_seconds_sum[30s])`, averaged | Share of time a consumer is processing. One consumer is one Python thread, so 1.0 is saturated. |
 | partitions | `consumer_topic_partitions` | More consumers than partitions would sit idle. |
 | VM CPU | `cec:node:vcpus_used / cec:node:vcpus` | When the VM is saturated, more consumers don't help. |
 
-- **Up:** delay above 2 s or busy above 60%, in 2 checks in a row. It adds enough consumers to bring the busy share to 50%, at least one. Not above the partition count, and not when the VM CPU is above 90%; then the VM is the bottleneck, and it logs that.
-- **Down:** one consumer less would still be below 40% busy, and the delay is below 0.5 s, in 8 checks in a row (2 minutes). It removes one consumer at a time.
-- **Cooldown:** 60 s after every change, until the rebalance and the 1-minute rates have settled.
+- **Up:** delay above 2 s or busy above 50%, in 2 checks in a row (10 s). It adds enough consumers to bring the busy share to 50%, at least one.
+- **Urgent up:** delay above 5 s, when the 10 s notification limit is at risk. It scales up at the next check and at least doubles the consumers, because the backlog has to be worked off as well.
+- **Limits:** never above the partition count, and not when the VM CPU is above 90%; then the VM is the bottleneck, and it logs that.
+- **Down:** one consumer less would still be below 40% busy, and the delay is below 0.5 s, in 24 checks in a row (2 minutes). It removes one consumer at a time.
+- **Cooldown:** 20 s after a change before scaling up again, which is long enough for a new consumer to start and get its partitions. 60 s before scaling down.
 
 All thresholds are environment variables at the top of [autoscaler.py](autoscaler.py).
 

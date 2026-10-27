@@ -109,11 +109,13 @@ def report_lag(stats_json):
             # librdkafka's consumer_lag counts from the committed offset, which trails
             # by the commit interval and incomplete measurements; count from what we
             # have read instead, once we have read anything from the partition
+            # partitions handed to another consumer stay in the stats with their last position
+            if partition == "-1" or partition_stats.get("fetch_state") != "active":
+                continue
             hi_offset = partition_stats.get("hi_offset", -1)
             app_offset = partition_stats.get("app_offset", -1)
             lag = hi_offset - app_offset if hi_offset >= 0 and app_offset >= 0 else partition_stats.get("consumer_lag", -1)
-            # -1 is the internal partition or a partition not assigned to this consumer
-            if partition != "-1" and lag >= 0:
+            if lag >= 0:
                 CONSUMER_LAG.labels(topic, partition).set(lag)
 
 def report_commit(err, partitions):
@@ -444,15 +446,18 @@ def consume(topic: str):
         # a rebalance only moves the partitions it has to
         'partition.assignment.strategy': 'cooperative-sticky',
         # partitions of a crashed consumer move after 6 s (the broker's minimum) instead of 45 s; heartbeats
-        # come from a librdkafka thread, so slow processing doesn't trigger this
+        # come from a librdkafka thread, so slow processing doesn't trigger this. Members notice
+        # a rebalance at their next heartbeat, and a cooperative one takes two rounds, so
+        # frequent heartbeats make scaling pause the moved partitions for less time.
         'session.timeout.ms': 6000,
-        'heartbeat.interval.ms': 2000,
+        'heartbeat.interval.ms': 1000,
         'security.protocol': 'SSL',
         'ssl.ca.location': './auth/ca.crt',
         'ssl.keystore.location': './auth/kafka.keystore.pkcs12',
         'ssl.keystore.password': 'cc2023',
         'ssl.endpoint.identification.algorithm': 'none',
-        'statistics.interval.ms': 5000,
+        # lag every 2 s, the autoscaler reacts to it
+        'statistics.interval.ms': 2000,
         'stats_cb': report_lag,
         'on_commit': report_commit,
     })

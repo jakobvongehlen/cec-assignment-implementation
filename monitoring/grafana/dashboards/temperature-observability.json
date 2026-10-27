@@ -955,14 +955,14 @@
               },
               {
                 "color": "orange",
-                "value": 0.6
+                "value": 0.5
               }
             ]
           }
         },
         "overrides": []
       },
-      "description": "Share of time spent processing messages. A consumer is one Python thread, so 100% is saturated. The autoscaler adds consumers above 60%.",
+      "description": "Share of time spent processing messages. A consumer is one Python thread, so 100% is saturated. The autoscaler adds consumers above 50%.",
       "options": {
         "legend": {
           "displayMode": "list",
