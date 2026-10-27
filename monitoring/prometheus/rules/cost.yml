@@ -1,0 +1,92 @@
+# Estimated cost of the VM the service runs on, in USD per hour.
+#
+# Billed cost (cec:cost_usd_per_hour, by component) is what AWS charges for the
+# group VM: a t3a.medium (2 vCPU, 4 GiB) in eu-west-1 with a 20 GiB root volume.
+# Usage only changes the cost through T3a CPU credits and outbound traffic.
+#
+# Showback (cec:container:cost_usd_per_hour) splits the instance price over the
+# containers by the CPU and memory they use, to show which part of the service
+# the money goes to. What no container uses is cec:unused_cost_usd_per_hour.
+#
+# Prices: AWS on-demand, Linux, eu-west-1, USD. Update them if the VM changes.
+groups:
+  - name: cost
+    rules:
+      # --- prices ------------------------------------------------------------
+      - record: cec:price_usd:instance_hour
+        expr: vector(0.0408)  # t3a.medium
+      - record: cec:price_usd:public_ipv4_hour
+        expr: vector(0.005)
+      - record: cec:price_usd:ebs_gib_month
+        expr: vector(0.088)  # gp3
+      - record: cec:price_usd:egress_gib
+        expr: vector(0.09)  # to the internet, first 10 TB/month
+      # T3a instances run in unlimited mode by default: CPU above the baseline is
+      # paid for with surplus credits once the earned credits are used up. This
+      # ignores the credit balance, so it is the worst case for sustained load.
+      - record: cec:price_usd:cpu_credit_vcpu_hour
+        expr: vector(0.05)
+      - record: cec:instance:baseline_vcpu_fraction
+        expr: vector(0.2)  # t3a.medium baseline is 20% per vCPU
+      # Fargate's vCPU-hour : GB-hour price ratio in eu-west-1 (0.04048 / 0.004445),
+      # used to split the instance price into a CPU and a memory part
+      - record: cec:price:vcpu_to_gib_ratio
+        expr: vector(9.107)
+
+      # --- VM usage (node_exporter) ------------------------------------------
+      - record: cec:node:vcpus
+        expr: count(node_cpu_seconds_total{job="node", mode="idle"})
+      - record: cec:node:vcpus_used
+        expr: sum(rate(node_cpu_seconds_total{job="node", mode!~"idle|iowait|steal"}[1m]))
+      - record: cec:node:memory_gib
+        expr: sum(node_memory_MemTotal_bytes{job="node"}) / 2^30
+      - record: cec:node:memory_used_gib
+        expr: sum(node_memory_MemTotal_bytes{job="node"} - node_memory_MemAvailable_bytes{job="node"}) / 2^30
+      - record: cec:node:disk_gib
+        expr: sum(node_filesystem_size_bytes{job="node", mountpoint="/"}) / 2^30
+      - record: cec:node:egress_bytes_per_second
+        expr: sum(rate(node_network_transmit_bytes_total{job="node", device!~"lo|veth.*|docker.*|br-.*"}[1m]))
+
+      # --- billed cost per component -----------------------------------------
+      - record: cec:cost_usd_per_hour
+        labels: {component: instance}
+        expr: cec:price_usd:instance_hour
+      - record: cec:cost_usd_per_hour
+        labels: {component: public_ipv4}
+        expr: cec:price_usd:public_ipv4_hour
+      - record: cec:cost_usd_per_hour
+        labels: {component: storage}
+        expr: cec:node:disk_gib * scalar(cec:price_usd:ebs_gib_month) / 730
+      - record: cec:cost_usd_per_hour
+        labels: {component: cpu_credits}
+        expr: >
+          clamp_min(cec:node:vcpus_used - cec:node:vcpus * scalar(cec:instance:baseline_vcpu_fraction), 0)
+          * scalar(cec:price_usd:cpu_credit_vcpu_hour)
+      - record: cec:cost_usd_per_hour
+        labels: {component: egress}
+        expr: cec:node:egress_bytes_per_second * 3600 / 2^30 * scalar(cec:price_usd:egress_gib)
+
+      # --- showback per container (cAdvisor) ---------------------------------
+      # instance price per vCPU-hour and per GiB-hour, so that a fully used VM
+      # adds up to the instance price
+      - record: cec:price_usd:vcpu_hour
+        expr: >
+          cec:price_usd:instance_hour * scalar(cec:price:vcpu_to_gib_ratio)
+          / (scalar(cec:node:vcpus) * scalar(cec:price:vcpu_to_gib_ratio) + scalar(cec:node:memory_gib))
+      - record: cec:price_usd:memory_gib_hour
+        expr: cec:price_usd:vcpu_hour / scalar(cec:price:vcpu_to_gib_ratio)
+      - record: cec:container:vcpus_used
+        expr: >
+          sum by (service) (label_replace(rate(container_cpu_usage_seconds_total{job="cadvisor"}[1m]),
+          "service", "$1", "container_label_com_docker_compose_service", "(.*)"))
+      - record: cec:container:memory_gib
+        expr: >
+          sum by (service) (label_replace(container_memory_working_set_bytes{job="cadvisor"},
+          "service", "$1", "container_label_com_docker_compose_service", "(.*)")) / 2^30
+      - record: cec:container:cost_usd_per_hour
+        expr: >
+          cec:container:vcpus_used * scalar(cec:price_usd:vcpu_hour)
+          + cec:container:memory_gib * scalar(cec:price_usd:memory_gib_hour)
+      # idle capacity plus everything outside the containers (OS, dockerd)
+      - record: cec:unused_cost_usd_per_hour
+        expr: cec:price_usd:instance_hour - scalar(sum(cec:container:cost_usd_per_hour))

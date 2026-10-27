@@ -1,25 +1,57 @@
 import json
-import logging, sys
+import logging
 import os
+import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
+from prometheus_client import Counter, Gauge, Histogram
+
 logger = logging.getLogger(__name__)
+
+# Prometheus metrics, served by the consumer's metrics endpoint
+NOTIFICATIONS = Counter(
+    "notifications_total",
+    "Notifications sent to the notifications service, by outcome",
+    ["notification_type", "outcome"],
+)
+NOTIFICATION_LATENCY = Histogram(
+    "notification_latency_seconds",
+    "Latency reported by the notifications service (measurement produced -> notification received)",
+    ["notification_type"],
+    buckets=(0.1, 0.25, 0.5, 1, 2, 3, 5, 7.5, 10, 15, 30, 60),
+)
+NOTIFICATION_REQUEST_DURATION = Histogram(
+    "notification_request_duration_seconds",
+    "Time spent on the POST to the notifications service, including retries",
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16),
+)
+NOTIFICATIONS_PENDING = Gauge(
+    "notifications_pending",
+    "Notifications queued in the thread pool or being sent",
+)
 
 # Dedicated logger for statistics
 stats_logger = logging.getLogger("notifier_stats")
 stats_logger.setLevel(logging.DEBUG)
 
-os.makedirs("/usr/src/app/logs", exist_ok=True)
-file_handler = logging.FileHandler("/usr/src/app/logs/notifier.log")
-file_handler.setFormatter(
-    logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-)
-stats_logger.addHandler(file_handler)
+# Robust log path handling for both Docker container (/usr/src/app) and local macOS/dev
+log_dir = os.environ.get("LOG_DIR", "/usr/src/app/logs" if os.path.exists("/usr/src/app") else "./logs")
+try:
+    os.makedirs(log_dir, exist_ok=True)
+    file_handler = logging.FileHandler(os.path.join(log_dir, "notifier.log"))
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    )
+    stats_logger.addHandler(file_handler)
+except Exception as e:
+    logger.warning("Could not setup file logger in %s: %s", log_dir, e)
+
 
 
 # constants
@@ -69,8 +101,10 @@ class NotificationClient:
         self,
         host: Optional[str] = None,
         token: Optional[str] = None,
-        max_workers: int = 5,
-        timeout: float = 5.0,
+        max_workers: Optional[int] = None,
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
+        retry_backoff: float = 0.1,
         on_latency: Optional[Callable[[float, dict], None]] = None,
     ):
         # base host can be set via env var NOTIFICATIONS_HOST
@@ -78,8 +112,11 @@ class NotificationClient:
         # demo host: https://notifications.cec.dlandau.nl
         self.host = (host or os.environ.get("NOTIFICATIONS_HOST", "http://localhost:3000")).rstrip("/")
         self.token = token if token is not None else _resolve_token(self.host)
-        self.timeout = timeout
-        self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="notifier-worker")
+        workers = max_workers if max_workers is not None else int(os.environ.get("NOTIFICATIONS_MAX_WORKERS", "15"))
+        self.timeout = timeout if timeout is not None else float(os.environ.get("NOTIFICATIONS_TIMEOUT", "4.0"))
+        self.max_retries = max_retries if max_retries is not None else int(os.environ.get("NOTIFICATIONS_MAX_RETRIES", "2"))
+        self.retry_backoff = retry_backoff
+        self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="notifier-worker")
         self.on_latency = on_latency
 
         # Latency metrics & SLO tracking (< 10.0s requirement)
@@ -99,85 +136,132 @@ class NotificationClient:
         return base_url
 
     def _send_request_sync(self, payload: dict) -> Optional[float]:
-        """synchronously executes the http post request to the notifications endpoint."""
+        """synchronously executes the http post request to the notifications endpoint with retries."""
         url = self._build_url()
         data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url=url,
-            data=data,
-            headers={
-                "Content-Type": "application/json; charset=utf-8",
-                "Accept": "*/*",
-            },
-            method="POST",
-        )
 
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                status = resp.status
-                body = resp.read().decode("utf-8").strip()
-                if status == 200:
-                    latency = None
-                    try:
-                        latency = float(body)
-                    except ValueError:
-                        pass
+        for attempt in range(self.max_retries + 1):
+            req = urllib.request.Request(
+                url=url,
+                data=data,
+                headers={
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Accept": "*/*",
+                },
+                method="POST",
+            )
 
-                    if latency is not None:
-                        with self._stats_lock:
-                            self.total_sent += 1
-                            self.total_latency += latency
-                            self.min_latency = min(self.min_latency, latency)
-                            self.max_latency = max(self.max_latency, latency)
-                            if latency >= 10.0:
-                                self.slo_violations += 1
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    status = resp.status
+                    body = resp.read().decode("utf-8").strip()
+                    if status == 200:
+                        latency = None
+                        try:
+                            latency = float(body)
+                        except ValueError:
+                            pass
 
-                        logger.info(
-                            "Notification sent successfully [%s] for experiment=%s, measurement=%s. Service latency: %s",
-                            payload.get("notification_type"),
-                            payload.get("experiment_id"),
-                            payload.get("measurement_id"),
-                            body,
-                        )
-
-                        if self.on_latency:
-                            try:
-                                self.on_latency(latency, payload)
-                            except Exception as cb_err:
-                                logger.warning("Error in on_latency callback: %s", cb_err)
-
-                        return latency
+                        if latency is not None:
+                            with self._stats_lock:
+                                self.total_sent += 1
+                                self.total_latency += latency
+                                self.min_latency = min(self.min_latency, latency)
+                                self.max_latency = max(self.max_latency, latency)
+                                if latency >= 10.0:
+                                    self.slo_violations += 1
+    
+                            logger.info(
+                                "Notification sent successfully [%s] for experiment=%s, measurement=%s. Service latency: %s",
+                                payload.get("notification_type"),
+                                payload.get("experiment_id"),
+                                payload.get("measurement_id"),
+                                body,
+                            )
+    
+                            if self.on_latency:
+                                try:
+                                    self.on_latency(latency, payload)
+                                except Exception as cb_err:
+                                    logger.warning("Error in on_latency callback: %s", cb_err)
+    
+                            return latency
+                        else:
+                            logger.info(
+                                "Notification sent successfully [%s] for experiment=%s, measurement=%s. Body: %s",
+                                payload.get("notification_type"),
+                                payload.get("experiment_id"),
+                                payload.get("measurement_id"),
+                                body,
+                            )
+                            return None
+                    elif status in (429, 500, 502, 503, 504) and attempt < self.max_retries:
+                        time.sleep(self.retry_backoff * (2 ** attempt))
+                        continue
                     else:
-                        logger.info(
-                            "Notification sent successfully [%s] for experiment=%s, measurement=%s. Body: %s",
-                            payload.get("notification_type"),
-                            payload.get("experiment_id"),
-                            payload.get("measurement_id"),
+                        logger.error(
+                            "Notification returned unexpected status %d: %s",
+                            status,
                             body,
                         )
                         return None
-                else:
-                    logger.error(
-                        "Notification returned unexpected status %d: %s",
-                        status,
-                        body,
+            except urllib.error.HTTPError as e:
+                # 5xx server errors or 429 rate limit are transient and retryable under heavy load
+                if e.code in (429, 500, 502, 503, 504) and attempt < self.max_retries:
+                    logger.warning(
+                        "Transient HTTP error %d sending notification (attempt %d/%d). Retrying in %.2fs...",
+                        e.code,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        self.retry_backoff * (2 ** attempt),
                     )
-                    return None
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode("utf-8", errors="replace")
-            logger.error(
-                "HTTP error sending notification to %s [%d]: %s",
-                url,
-                e.code,
-                error_body,
-            )
-            return None
-        except urllib.error.URLError as e:
-            logger.error("Network error sending notification to %s: %s", url, e.reason)
-            return None
-        except Exception as e:
-            logger.error("Unexpected error sending notification to %s: %s", url, e)
-            return None
+                    time.sleep(self.retry_backoff * (2 ** attempt))
+                    continue
+
+                error_body = e.read().decode("utf-8", errors="replace")
+                logger.error(
+                    "HTTP error sending notification to %s [%d]: %s",
+                    url,
+                    e.code,
+                    error_body,
+                )
+                return None
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                # Network glitches, connection resets, or timeouts are retryable
+                if attempt < self.max_retries:
+                    logger.warning(
+                        "Network error sending notification (%s) (attempt %d/%d). Retrying in %.2fs...",
+                        e,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        self.retry_backoff * (2 ** attempt),
+                    )
+                    time.sleep(self.retry_backoff * (2 ** attempt))
+                    continue
+
+                logger.error("Network error sending notification to %s: %s", url, e)
+                return None
+            except Exception as e:
+                logger.error("Unexpected error sending notification to %s: %s", url, e)
+                return None
+
+        return None
+
+    def _send_and_record(self, payload: dict) -> Optional[float]:
+        """sends a notification and records it in the prometheus metrics."""
+        notification_type = payload["notification_type"]
+        start = time.perf_counter()
+        try:
+            latency = self._send_request_sync(payload)
+        finally:
+            NOTIFICATION_REQUEST_DURATION.observe(time.perf_counter() - start)
+            NOTIFICATIONS_PENDING.dec()
+        if latency is None:
+            NOTIFICATIONS.labels(notification_type, "error").inc()
+        else:
+            NOTIFICATIONS.labels(notification_type, "ok").inc()
+            NOTIFICATION_LATENCY.labels(notification_type).observe(latency)
+        return latency
 
     def send_notification(
         self,
@@ -217,9 +301,10 @@ class NotificationClient:
             "cipher_data": cipher_data,
         }
 
+        NOTIFICATIONS_PENDING.inc()
         if async_send:
-            return self.executor.submit(self._send_request_sync, payload)
-        return self._send_request_sync(payload)
+            return self.executor.submit(self._send_and_record, payload)
+        return self._send_and_record(payload)
 
     def notify_stabilized(
         self,
@@ -268,19 +353,19 @@ class NotificationClient:
                 "min_latency": min_lat,
                 "max_latency": self.max_latency,
                 "slo_violations": self.slo_violations,
+                "sla_violations": self.slo_violations,  # alias for backwards compatibility
             }
 
     def log_stats_summary(self):
         """Logs a formatted summary of notification latency and SLO metrics."""
         stats = self.get_stats()
-        stats_logger.info(
-            "=== Notification SLO Metrics === Sent: %d | Avg Latency: %.3fs | Min: %.3fs | Max: %.3fs | SLO Violations (>=10s): %d",
-            stats["total_sent"],
-            stats["avg_latency"],
-            stats["min_latency"],
-            stats["max_latency"],
-            stats["slo_violations"],
+        summary_msg = (
+            f"=== Notification SLA Metrics === Sent: {stats['total_sent']} | "
+            f"Avg Latency: {stats['avg_latency']:.3f}s | Min: {stats['min_latency']:.3f}s | "
+            f"Max: {stats['max_latency']:.3f}s | SLA Violations (>=10s): {stats['slo_violations']}"
         )
+        stats_logger.info(summary_msg)
+        logger.info(summary_msg)
 
     def shutdown(self, wait: bool = True):
         """gracefully shuts down the background thread pool."""

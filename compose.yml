@@ -241,5 +241,85 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # --- monitoring, see monitoring/README.md ---------------------------------
+
+  # The course Prometheus federates the node_* metrics from <vm-ip>:3008
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    # root, to read the docker socket that is used to find the consumer containers
+    user: root
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # the VM disk is small
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=1GB
+    ports:
+      - "3008:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+
+  # VM CPU, memory, network and disk; host namespaces so it sees the VM, not itself
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command:
+      - --path.rootfs=/host
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro
+    restart: unless-stopped
+
+  # CPU, memory and network per container
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.57.0
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service
+      # only cpu, memory and network are collected
+      - --disable_metrics=advtcp,app,cpuLoad,cpu_topology,cpuset,disk,diskIO,hugetlb,memory_numa,oom_event,percpu,perf_event,process,referenced_memory,resctrl,sched,tcp,udp
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
+
+  # Cost and bottleneck dashboard on :3010. It is public, so nobody can log in:
+  # everyone is an anonymous viewer that can also use Explore. Change the
+  # dashboard in monitoring/grafana/dashboard.py instead of the UI.
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_AUTH_DISABLE_LOGIN: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_VIEWERS_CAN_EDIT: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/temperature-observability.json
+    ports:
+      - "3010:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  prometheus-data:
+  grafana-data:

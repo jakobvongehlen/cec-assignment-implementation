@@ -10,6 +10,8 @@ from avro.io import DatumReader
 from confluent_kafka import Consumer
 import psycopg2
 import signal
+import os
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from notifier import default_notifier
 
@@ -29,6 +31,38 @@ logging.addLevelName(logging.ERROR, "\033[31mERROR\033[0m")     # Red
 logger = logging.getLogger(__name__)
 
 DB_CONFIG = "dbname=temp_db user=postgres password=cec host=mypg"
+METRICS_PORT = int(os.environ.get("METRICS_PORT", "8000"))
+
+# Prometheus metrics, scraped from :METRICS_PORT/metrics
+MESSAGES = Counter("consumer_messages_total", "Kafka messages consumed", ["event_type"])
+PROCESSING_TIME = Histogram(
+    "consumer_message_processing_seconds",
+    "Time to decode and process one Kafka message, including the DB write",
+    buckets=(0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25),
+)
+DB_WRITE_TIME = Histogram(
+    "consumer_db_write_seconds",
+    "Time to insert one averaged measurement",
+    buckets=(0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25),
+)
+CONSUMER_LAG = Gauge(
+    "consumer_lag_messages",
+    "Messages in the partition that this consumer has not processed yet",
+    ["topic", "partition"],
+)
+ACTIVE_EXPERIMENTS = Gauge("consumer_active_experiments", "Experiments this consumer is tracking")
+
+def report_lag(stats_json):
+    """librdkafka statistics callback, called from poll() every statistics.interval.ms."""
+    stats = json.loads(stats_json)
+    # partitions that were revoked in a rebalance must not keep their last value
+    CONSUMER_LAG.clear()
+    for topic, topic_stats in stats.get("topics", {}).items():
+        for partition, partition_stats in topic_stats.get("partitions", {}).items():
+            lag = partition_stats.get("consumer_lag", -1)
+            # -1 is the internal partition or a partition not assigned to this consumer
+            if partition != "-1" and lag >= 0:
+                CONSUMER_LAG.labels(topic, partition).set(lag)
 
 class Experiment():
     def __init__(self, experiment_id, tmp_upper_threshold, tmp_lower_threshold, num_sensors, researcher=None):
@@ -47,21 +81,22 @@ class Experiment():
 def persist_measurement(cur, record, avg_temp, m_hash, out_of_range):
     """Persists the average temperature measurement to the database."""
     m_hash = record["measurement_hash"]
-    cur.execute(
-        """
-        INSERT INTO measurements 
-        (measurement_id, experiment_id, timestamp, temperature, measurement_hash, out_of_range) 
-        VALUES (%s, %s, %s, %s, %s, %s)
-        """,
-        (
-            record["measurement_id"],
-            record["experiment"],
-            record["timestamp"],
-            avg_temp,
-            m_hash,
-            out_of_range,
-        ),
-    )
+    with DB_WRITE_TIME.time():
+        cur.execute(
+            """
+            INSERT INTO measurements 
+            (measurement_id, experiment_id, timestamp, temperature, measurement_hash, out_of_range) 
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                record["measurement_id"],
+                record["experiment"],
+                record["timestamp"],
+                avg_temp,
+                m_hash,
+                out_of_range,
+            ),
+        )
 
 def persist_experiment_termination(cur, experiment_id, terminated_at):
     """Persists the experiment termination event to the database."""
@@ -106,7 +141,8 @@ def process_measurement(record, event_type, experiment, cur):
             )
             return experiment
 
-        logger.info(f"Avg. temperature for experiment {experiment.experiment_id} (measurement {measurement_id}): {avg_temp}")
+        # one line per measurement: debug only, it is slower than all the metrics and fills the docker logs
+        logger.debug("Avg. temperature for experiment %s (measurement %s): %s", experiment.experiment_id, measurement_id, avg_temp)
 
         if experiment.phase == "experiment_started":
             out_of_range = not (experiment.tmp_lower_threshold <= avg_temp <= experiment.tmp_upper_threshold)
@@ -187,6 +223,8 @@ def consume(topic: str):
         'ssl.keystore.location': './auth/kafka.keystore.pkcs12',
         'ssl.keystore.password': 'cc2023',
         'ssl.endpoint.identification.algorithm': 'none',
+        'statistics.interval.ms': 5000,
+        'stats_cb': report_lag,
     })
     consumer.subscribe([topic], on_assign=lambda _, p_list: logger.info(p_list))
 
@@ -195,6 +233,8 @@ def consume(topic: str):
     cur = conn.cursor()
 
     experiments = {}
+    ACTIVE_EXPERIMENTS.set_function(lambda: len(experiments))
+    start_http_server(METRICS_PORT)
 
     try:
         while True:
@@ -208,9 +248,11 @@ def consume(topic: str):
             kafka_headers = dict(msg.headers() or [])
             event_type = kafka_headers.get("record_name", b"").decode("utf-8")
 
-            with DataFileReader(io.BytesIO(msg.value()), DatumReader()) as reader:
-                record = next(reader)
-            process_event(event_type, record, experiments, cur)
+            MESSAGES.labels(event_type).inc()
+            with PROCESSING_TIME.time():
+                with DataFileReader(io.BytesIO(msg.value()), DatumReader()) as reader:
+                    record = next(reader)
+                process_event(event_type, record, experiments, cur)
 
     except KeyboardInterrupt:
         logger.info("\nStopping consumer...")
