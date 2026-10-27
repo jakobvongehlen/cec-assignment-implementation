@@ -6,13 +6,14 @@ so whichever consumer owns the partition owns the experiment. To make handing a
 partition to another consumer safe (scaling, crashes):
 
 - The state of every experiment (config, phase, out-of-range flag and the offset
-  of the last event applied to it) is in the `experiments` table. A consumer
+  of the last event that changed it) is in the `experiments` table. A consumer
   that gets a partition loads its experiments from there.
 - Readings of a measurement that is not complete yet only live in memory, so
   offsets are committed only up to the first reading of the oldest incomplete
   measurement. The next owner reads those readings again.
-- Events that were already applied (offset <= the experiment's last offset) are
-  skipped, measurements are inserted with ON CONFLICT DO NOTHING and the
+- Events up to the last change (offset <= the experiment's last offset) are
+  skipped. Measurements after it are processed again, but none of them changes
+  the state, measurements are inserted with ON CONFLICT DO NOTHING and the
   notifications service ignores duplicate notifications. Reading an event twice
   therefore has no effect.
 """
@@ -185,6 +186,9 @@ class State():
         self.next_offset = {}
         # partition -> last committed offset
         self.committed = {}
+        # set when processing a message failed halfway, e.g. a DB write: nothing may be
+        # committed any more, because the message's effects are only partly stored
+        self.failed = False
 
     # --- experiments ---------------------------------------------------------
 
@@ -270,8 +274,8 @@ class State():
         experiment.out_of_range = out_of_range
         experiment.last_offset = offset
         self.db.execute(
-            "UPDATE experiments SET phase = %s, out_of_range = %s, last_offset = %s WHERE experiment_id = %s",
-            (phase, out_of_range, offset, experiment.experiment_id),
+            "UPDATE experiments SET phase = %s, out_of_range = %s, last_offset = %s WHERE experiment_id = %s AND last_offset < %s",
+            (phase, out_of_range, offset, experiment.experiment_id, offset),
         )
         logger.info("Experiment %s transitioned to %s", experiment.experiment_id, phase)
 
@@ -301,6 +305,10 @@ class State():
         elif experiment.phase == "experiment_started" and out_of_range and not experiment.out_of_range:
             notify = default_notifier.notify_out_of_range
             logger.warning("OUT OF RANGE for %s: %f", experiment.experiment_id, avg_temp)
+        # The experiment row is only updated when the flag changes. Replaying the
+        # measurements after the last change gives the same result: none of them
+        # changes the flag, and their rows are ignored as duplicates.
+        changed = out_of_range != experiment.out_of_range
         experiment.out_of_range = out_of_range
         experiment.last_offset = offset
 
@@ -314,50 +322,58 @@ class State():
                 cipher_data=record["measurement_hash"],
             )
 
-        try:
-            if experiment.phase == "experiment_started":
-                # stored for the REST API, in one round trip and one transaction with the new state
-                self.db.execute(
-                    """
-                    WITH inserted AS (
-                        INSERT INTO measurements
-                        (measurement_id, experiment_id, timestamp, temperature, measurement_hash, out_of_range)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (measurement_id) DO NOTHING
-                    )
-                    UPDATE experiments SET out_of_range = %s, last_offset = %s WHERE experiment_id = %s
-                    """,
-                    (
-                        measurement_id, experiment.experiment_id, record["timestamp"], avg_temp,
-                        record["measurement_hash"], out_of_range,
-                        out_of_range, offset, experiment.experiment_id,
-                    ),
+        # a failed write raises and stops the consumer without committing (see
+        # State.failed), so the measurement is read again after the restart
+        if experiment.phase == "experiment_started" and changed:
+            # stored for the REST API, in one round trip and one transaction with the new state
+            self.db.execute(
+                """
+                WITH inserted AS (
+                    INSERT INTO measurements
+                    (measurement_id, experiment_id, timestamp, temperature, measurement_hash, out_of_range)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (measurement_id) DO NOTHING
                 )
-            else:
-                # stabilization measurements are not stored
-                self.db.execute(
-                    "UPDATE experiments SET out_of_range = %s, last_offset = %s WHERE experiment_id = %s",
-                    (out_of_range, offset, experiment.experiment_id),
-                )
-        except Exception as e:
-            logger.error("DB write failed for experiment %s: %s", experiment.experiment_id, e)
+                UPDATE experiments SET out_of_range = %s, last_offset = %s WHERE experiment_id = %s AND last_offset < %s
+                """,
+                (
+                    measurement_id, experiment.experiment_id, record["timestamp"], avg_temp,
+                    record["measurement_hash"], out_of_range,
+                    out_of_range, offset, experiment.experiment_id, offset,
+                ),
+            )
+        elif experiment.phase == "experiment_started":
+            self.db.execute(
+                """
+                INSERT INTO measurements
+                (measurement_id, experiment_id, timestamp, temperature, measurement_hash, out_of_range)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (measurement_id) DO NOTHING
+                """,
+                (measurement_id, experiment.experiment_id, record["timestamp"], avg_temp,
+                 record["measurement_hash"], out_of_range),
+            )
+        elif changed:
+            # stabilization measurements are not stored
+            self.db.execute(
+                "UPDATE experiments SET out_of_range = %s, last_offset = %s WHERE experiment_id = %s AND last_offset < %s",
+                (out_of_range, offset, experiment.experiment_id, offset),
+            )
 
     def terminate(self, experiment, record, partition, offset):
         logger.info("Experiment %s terminated.", experiment.experiment_id)
-        try:
-            self.db.execute(
-                """
-                WITH terminated AS (
-                    INSERT INTO experiments_terminated (experiment_id, terminated_at)
-                    VALUES (%s, %s)
-                    ON CONFLICT (experiment_id) DO NOTHING
-                )
-                UPDATE experiments SET phase = 'experiment_terminated', last_offset = %s WHERE experiment_id = %s
-                """,
-                (experiment.experiment_id, record["timestamp"], offset, experiment.experiment_id),
+        self.db.execute(
+            """
+            WITH terminated AS (
+                INSERT INTO experiments_terminated (experiment_id, terminated_at)
+                VALUES (%s, %s)
+                ON CONFLICT (experiment_id) DO NOTHING
             )
-        except Exception as e:
-            logger.error("DB write failed for experiment termination %s: %s", experiment.experiment_id, e)
+            UPDATE experiments SET phase = 'experiment_terminated', last_offset = %s
+            WHERE experiment_id = %s AND last_offset < %s
+            """,
+            (experiment.experiment_id, record["timestamp"], offset, experiment.experiment_id, offset),
+        )
         for measurement_id in experiment.partial:
             self.open[partition].pop((experiment.experiment_id, measurement_id), None)
         del self.experiments[experiment.experiment_id]
@@ -372,6 +388,8 @@ class State():
         return self.next_offset[partition]
 
     def commit(self, consumer, partitions=None, asynchronous=True):
+        if self.failed:
+            return
         partitions = self.next_offset.keys() if partitions is None else partitions
         offsets = []
         for partition in partitions:
@@ -425,10 +443,10 @@ def consume(topic: str):
         'enable.auto.commit': 'false',
         # a rebalance only moves the partitions it has to
         'partition.assignment.strategy': 'cooperative-sticky',
-        # partitions of a crashed consumer move after 10 s instead of 45 s; heartbeats
+        # partitions of a crashed consumer move after 6 s (the broker's minimum) instead of 45 s; heartbeats
         # come from a librdkafka thread, so slow processing doesn't trigger this
-        'session.timeout.ms': 10000,
-        'heartbeat.interval.ms': 3000,
+        'session.timeout.ms': 6000,
+        'heartbeat.interval.ms': 2000,
         'security.protocol': 'SSL',
         'ssl.ca.location': './auth/ca.crt',
         'ssl.keystore.location': './auth/kafka.keystore.pkcs12',
@@ -497,6 +515,12 @@ def consume(topic: str):
 
     except KeyboardInterrupt:
         logger.info("\nStopping consumer...")
+    except Exception:
+        # exit without committing; the container restarts and the next owner of the
+        # partitions reads the message again
+        state.failed = True
+        logger.exception("Stopping after an error, without committing")
+        raise
     finally:
         print("Closing consumer and database connection...")
         state.commit(consumer, asynchronous=False)

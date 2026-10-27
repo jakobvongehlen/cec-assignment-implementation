@@ -34,6 +34,6 @@ CREATE TABLE IF NOT EXISTS experiments (
     phase TEXT NOT NULL,
     -- whether the last measurement was out of range
     out_of_range BOOLEAN NOT NULL,
-    -- Kafka offset of the last event applied to the experiment
+    -- Kafka offset of the last event that changed the experiment
     last_offset BIGINT NOT NULL
 );
