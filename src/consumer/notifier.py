@@ -10,7 +10,31 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
+from prometheus_client import Counter, Gauge, Histogram
+
 logger = logging.getLogger(__name__)
+
+# Prometheus metrics, served by the consumer's metrics endpoint
+NOTIFICATIONS = Counter(
+    "notifications_total",
+    "Notifications sent to the notifications service, by outcome",
+    ["notification_type", "outcome"],
+)
+NOTIFICATION_LATENCY = Histogram(
+    "notification_latency_seconds",
+    "Latency reported by the notifications service (measurement produced -> notification received)",
+    ["notification_type"],
+    buckets=(0.1, 0.25, 0.5, 1, 2, 3, 5, 7.5, 10, 15, 30, 60),
+)
+NOTIFICATION_REQUEST_DURATION = Histogram(
+    "notification_request_duration_seconds",
+    "Time spent on the POST to the notifications service, including retries",
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8, 16),
+)
+NOTIFICATIONS_PENDING = Gauge(
+    "notifications_pending",
+    "Notifications queued in the thread pool or being sent",
+)
 
 # Dedicated logger for statistics
 stats_logger = logging.getLogger("notifier_stats")
@@ -223,6 +247,22 @@ class NotificationClient:
 
         return None
 
+    def _send_and_record(self, payload: dict) -> Optional[float]:
+        """sends a notification and records it in the prometheus metrics."""
+        notification_type = payload["notification_type"]
+        start = time.perf_counter()
+        try:
+            latency = self._send_request_sync(payload)
+        finally:
+            NOTIFICATION_REQUEST_DURATION.observe(time.perf_counter() - start)
+            NOTIFICATIONS_PENDING.dec()
+        if latency is None:
+            NOTIFICATIONS.labels(notification_type, "error").inc()
+        else:
+            NOTIFICATIONS.labels(notification_type, "ok").inc()
+            NOTIFICATION_LATENCY.labels(notification_type).observe(latency)
+        return latency
+
     def send_notification(
         self,
         notification_type: str,
@@ -261,9 +301,10 @@ class NotificationClient:
             "cipher_data": cipher_data,
         }
 
+        NOTIFICATIONS_PENDING.inc()
         if async_send:
-            return self.executor.submit(self._send_request_sync, payload)
-        return self._send_request_sync(payload)
+            return self.executor.submit(self._send_and_record, payload)
+        return self._send_and_record(payload)
 
     def notify_stabilized(
         self,
