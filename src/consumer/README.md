@@ -140,3 +140,28 @@ Diogo produces messages to the shared `experiments` topic, and our consumer forw
    ```
 
 > **Note**: In Mode 2, `notifier.py` automatically reads the token from `./auth/token` (mounted via `-v "$(pwd)/auth":/usr/src/app/auth`) and authenticates against `https://notifications.cec.dlandau.nl`.
+
+---
+
+### Scaling and Consistency
+
+Any number of consumers can run as the `consumer` service in [compose.yml](../../compose.yml); the [autoscaler](../autoscaler/README.md) adds and removes them. They share the topic's partitions through the Kafka consumer group. The producer keys every event by experiment id, so all events of an experiment are in one partition and are processed by one consumer at a time.
+
+When a partition moves to another consumer (scaling, crash or restart), the new owner has to continue where the old one stopped, without losing or repeating anything:
+
+1. **Experiment state is in Postgres.** The `experiments` table holds the configuration, phase, the out-of-range flag of the last measurement and `last_offset`, the Kafka offset of the last event that changed the experiment. The row is only written on a change (configuration, phase, the out-of-range flag flipping), not for every measurement. A consumer that sees an experiment it doesn't know loads it from there.
+2. **Offsets are only committed up to what is safe.** Readings of a measurement that is still missing sensors only live in memory. Auto-commit is off; every second, and before giving up a partition, the consumer commits the offset of the first reading of its oldest incomplete measurement. The next owner reads those readings again and completes the measurement.
+3. **Reading an event twice has no effect.**
+   - Events with an offset at or below the experiment's `last_offset` are skipped. Measurements after it are processed again with the state they were processed with the first time, because none of them changed it.
+   - Readings are stored per sensor, so a repeated reading can't be counted twice in an average.
+   - Measurements are inserted with `ON CONFLICT DO NOTHING`; when one flips the flag, together with the new experiment state in one statement.
+   - Notifications are sent before that write. A crash in between sends one again, and the notifications service ignores duplicates.
+4. **Rebalances are short.**
+   - Cooperative-sticky assignment only moves the partitions that have to move.
+   - A stopped consumer (`SIGTERM`) finishes its message, commits and leaves the group.
+   - A crashed consumer's partitions move after the 6 s session timeout, the broker's minimum.
+5. **A failed write stops the consumer.** If a DB write fails (after one reconnect), the consumer exits without committing and its container restarts. Whoever owns the partitions next reads the message again, so a measurement is never half stored.
+
+Notifications follow the same rules as the producer uses to decide which measurements are notified: `Stabilized` for every measurement that comes back into the range during stabilization, `OutOfRange` for every measurement that leaves it while the experiment runs. The out-of-range flag resets at the start of each phase.
+
+**Metrics** for this are in the Grafana dashboard: consumers, busy share per consumer, and skipped messages by reason (`already_processed` are replays after a partition moved).

@@ -109,6 +109,19 @@ panel("timeseries", "VM network", [
         target("sum(rate(node_network_receive_bytes_total{job=\"node\", device!~\"lo|veth.*|docker.*|br-.*\"}[1m]))", "in", "B")], 12, 12, 8, unit="Bps")
 y += 8
 
+# --- scaling ------------------------------------------------------------------
+row("Scaling (autoscaler)")
+panel("timeseries", "Consumers", [
+        target("count(up{job=\"consumer\"} == 1)", "consumers"),
+        target("max(consumer_topic_partitions)", "partitions (most useful consumers)", "B")], 0, 8, 8,
+      unit="short", decimals=0, desc="Running consumer containers. More consumers than partitions would sit idle.")
+panel("timeseries", "Busy share per consumer", [target("rate(consumer_message_processing_seconds_sum[1m])", "{{instance}}")], 8, 8, 8,
+      unit="percentunit", thresholds=[(0.5, "orange")],
+      desc="Share of time spent processing messages. A consumer is one Python thread, so 100% is saturated. The autoscaler adds consumers above 50%.")
+panel("timeseries", "Skipped messages", [target("sum by (reason) (rate(consumer_skipped_messages_total[1m]))", "{{reason}}")], 16, 8, 8,
+      unit="reqps", desc="already_processed: read again after a partition moved to another consumer, has no effect. unknown_experiment: configured before any consumer was running. incomplete_measurement: dropped after 30 s.")
+y += 8
+
 # --- notifications ------------------------------------------------------------
 row("Notifications (SLA: < 10 s)")
 panel("timeseries", "Notification latency", [

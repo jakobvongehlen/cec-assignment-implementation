@@ -11,21 +11,22 @@ if [[ ! -f "$PROJECT_DIR/compose.yml" ]]; then
   exit 1
 fi
 
-services=( $(docker compose -f "$PROJECT_DIR/compose.yml" config --services 2>/dev/null | grep '^consumer_' | sort || true) )
+COMPOSE=(docker compose -f "$PROJECT_DIR/compose.yml")
+# all containers of the consumer service, however many the autoscaler started
+containers=( $("${COMPOSE[@]}" ps -q consumer 2>/dev/null || true) )
 
-if [[ ${#services[@]} -eq 0 ]]; then
-  echo "No consumer_* services were found in $PROJECT_DIR/compose.yml" >&2
+if [[ ${#containers[@]} -eq 0 ]]; then
+  echo "No running consumer containers found for $PROJECT_DIR/compose.yml" >&2
   exit 1
 fi
 
-echo "Collecting final SLA summaries from ${#services[@]} consumer services..."
+# otherwise it replaces the consumers we stop
+"${COMPOSE[@]}" stop autoscaler >/dev/null 2>&1 || true
 
-for service in "${services[@]}"; do
-  cid=$(docker compose -f "$PROJECT_DIR/compose.yml" ps -q "$service" 2>/dev/null || true)
-  if [[ -z "$cid" ]]; then
-    echo "Skipping $service: container is not running"
-    continue
-  fi
+echo "Collecting final SLA summaries from ${#containers[@]} consumer containers..."
+
+for cid in "${containers[@]}"; do
+  service=$(docker inspect --format '{{.Name}}' "$cid" | sed 's|^/||')
 
   docker update --restart=no "$cid" >/dev/null 2>&1 || true
 
