@@ -449,7 +449,7 @@
         },
         "overrides": []
       },
-      "description": "vCPUs in use. A container at 1.0 that runs a single-threaded process (a Python consumer) is saturated.",
+      "description": "vCPUs in use. 'consumers' adds up the 16 consumer containers.",
       "options": {
         "legend": {
           "displayMode": "list",
@@ -830,7 +830,7 @@
     },
     {
       "type": "row",
-      "title": "Scaling (autoscaler)",
+      "title": "Consumers (16, one per partition)",
       "id": 17,
       "collapsed": false,
       "gridPos": {
@@ -843,7 +843,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Consumers",
+      "title": "Consumers up",
       "id": 18,
       "datasource": {
         "type": "prometheus",
@@ -862,17 +862,79 @@
             "uid": "prometheus"
           },
           "expr": "count(up{job=\"consumer\"} == 1)",
-          "legendFormat": "consumers",
+          "legendFormat": "running",
           "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "line+area"
+            }
+          },
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 16
+              }
+            ]
+          }
         },
+        "overrides": []
+      },
+      "description": "Consumers Prometheus can reach. Should be 16.",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Partitions per consumer",
+      "id": 19,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 45,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(consumer_topic_partitions)",
-          "legendFormat": "partitions (most useful consumers)",
-          "refId": "B"
+          "expr": "consumer_assigned_partitions",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
         }
       ],
       "fieldConfig": {
@@ -892,77 +954,7 @@
         },
         "overrides": []
       },
-      "description": "Running consumer containers. More consumers than partitions would sit idle.",
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "Busy share per consumer",
-      "id": 19,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 45,
-        "w": 8,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(consumer_message_processing_seconds_sum[1m])",
-          "legendFormat": "{{instance}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "fillOpacity": 10,
-            "lineWidth": 1,
-            "showPoints": "never",
-            "stacking": {
-              "mode": "none",
-              "group": "A"
-            },
-            "thresholdsStyle": {
-              "mode": "line+area"
-            }
-          },
-          "unit": "percentunit",
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "description": "Share of time spent processing messages. A consumer is one Python thread, so 100% is saturated. The autoscaler adds consumers above 50%.",
+      "description": "Each consumer owns one partition. After a consumer is gone for longer than the 6 s session timeout, its partition moves to another one.",
       "options": {
         "legend": {
           "displayMode": "list",

@@ -86,7 +86,7 @@ row("Where is the bottleneck?")
 panel("timeseries", "CPU per container", [
         target("cec:container:vcpus_used", "{{service}}"),
         target("cec:node:vcpus", "VM vCPUs", "B")], 0, 12, 8, unit="none", decimals=2,
-      desc="vCPUs in use. A container at 1.0 that runs a single-threaded process (a Python consumer) is saturated.")
+      desc="vCPUs in use. 'consumers' adds up the 16 consumer containers.")
 panel("timeseries", "Memory per container", [
         target("cec:container:memory_gib", "{{service}}"),
         target("cec:node:memory_gib", "VM memory", "B")], 12, 12, 8, unit="gbytes", decimals=2)
@@ -109,15 +109,12 @@ panel("timeseries", "VM network", [
         target("sum(rate(node_network_receive_bytes_total{job=\"node\", device!~\"lo|veth.*|docker.*|br-.*\"}[1m]))", "in", "B")], 12, 12, 8, unit="Bps")
 y += 8
 
-# --- scaling ------------------------------------------------------------------
-row("Scaling (autoscaler)")
-panel("timeseries", "Consumers", [
-        target("count(up{job=\"consumer\"} == 1)", "consumers"),
-        target("max(consumer_topic_partitions)", "partitions (most useful consumers)", "B")], 0, 8, 8,
-      unit="short", decimals=0, desc="Running consumer containers. More consumers than partitions would sit idle.")
-panel("timeseries", "Busy share per consumer", [target("rate(consumer_message_processing_seconds_sum[1m])", "{{instance}}")], 8, 8, 8,
-      unit="percentunit", thresholds=[(0.5, "orange")],
-      desc="Share of time spent processing messages. A consumer is one Python thread, so 100% is saturated. The autoscaler adds consumers above 50%.")
+# --- consumers ---------------------------------------------------------------
+row("Consumers (16, one per partition)")
+panel("timeseries", "Consumers up", [target("count(up{job=\"consumer\"} == 1)", "running")], 0, 8, 8,
+      unit="short", decimals=0, thresholds=[(16, "green")], desc="Consumers Prometheus can reach. Should be 16.")
+panel("timeseries", "Partitions per consumer", [target("consumer_assigned_partitions", "{{instance}}")], 8, 8, 8,
+      unit="short", decimals=0, desc="Each consumer owns one partition. After a consumer is gone for longer than the 6 s session timeout, its partition moves to another one.")
 panel("timeseries", "Skipped messages", [target("sum by (reason) (rate(consumer_skipped_messages_total[1m]))", "{{reason}}")], 16, 8, 8,
       unit="reqps", desc="already_processed: read again after a partition moved to another consumer, has no effect. unknown_experiment: configured before any consumer was running. incomplete_measurement: dropped after 30 s. too_old_at_start: backlog skipped after all consumers were down.")
 y += 8

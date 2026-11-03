@@ -24,26 +24,14 @@ scrape_configs:
         regex: ""
         action: drop
 
-  # App metrics of every consumer container, however many are running:
-  # consumer_1 ... consumer_N, or one `consumer` service scaled with --scale
+  # App metrics of the 16 consumers (compose services consumer_1 ... consumer_16)
   - job_name: consumer
-    # often, the autoscaler decides on these every 5 s
-    scrape_interval: 2s
-    docker_sd_configs:
-      - host: unix:///var/run/docker.sock
-        refresh_interval: 10s
+    static_configs:
+      - targets: ["consumer_1:8000", "consumer_2:8000", "consumer_3:8000", "consumer_4:8000", "consumer_5:8000", "consumer_6:8000", "consumer_7:8000", "consumer_8:8000", "consumer_9:8000", "consumer_10:8000", "consumer_11:8000", "consumer_12:8000", "consumer_13:8000", "consumer_14:8000", "consumer_15:8000", "consumer_16:8000"]
     relabel_configs:
-      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
-        regex: consumer(_\d+)?
-        action: keep
-      # one target per container, even if it publishes several ports
-      - source_labels: [__meta_docker_network_ip]
-        target_label: __address__
-        replacement: $1:8000
-      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
-        target_label: service
-      - source_labels: [__meta_docker_container_name]
-        regex: /(.*)
+      # instance="consumer_1" instead of "consumer_1:8000"
+      - source_labels: [__address__]
+        regex: (.*):8000
         target_label: instance
 
   - job_name: prometheus

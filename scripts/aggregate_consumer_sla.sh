@@ -12,16 +12,14 @@ if [[ ! -f "$PROJECT_DIR/compose.yml" ]]; then
 fi
 
 COMPOSE=(docker compose -f "$PROJECT_DIR/compose.yml")
-# all containers of the consumer service, however many the autoscaler started
-containers=( $("${COMPOSE[@]}" ps -q consumer 2>/dev/null || true) )
+# the containers of consumer_1 ... consumer_16
+consumer_services=( $("${COMPOSE[@]}" config --services | grep '^consumer_' || true) )
+containers=( $("${COMPOSE[@]}" ps -q "${consumer_services[@]}" 2>/dev/null || true) )
 
 if [[ ${#containers[@]} -eq 0 ]]; then
   echo "No running consumer containers found for $PROJECT_DIR/compose.yml" >&2
   exit 1
 fi
-
-# otherwise it replaces the consumers we stop
-"${COMPOSE[@]}" stop autoscaler >/dev/null 2>&1 || true
 
 echo "Collecting final SLA summaries from ${#containers[@]} consumer containers..."
 
