@@ -49,7 +49,7 @@ services:
       - consumer
     restart: unless-stopped
 
-  # API_IMPL=rust deploys src/http-api-rust, unset deploys the Python API in src/http-api
+  # API_IMPL=rust (the default, set in .env) deploys src/http-api-rust; API_IMPL= (empty) deploys the Python API in src/http-api
   api:
     build: ./src/http-api${API_IMPL:+-$API_IMPL}
     image: http-api${API_IMPL:+-$API_IMPL}

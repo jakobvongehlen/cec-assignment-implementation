@@ -4,13 +4,13 @@ A Rust port of the Python API in [`../http-api`](../http-api). It serves the sam
 
 ## Choosing the implementation
 
-`compose.yml` builds the Python API by default. To deploy this one instead, set `API_IMPL`:
+`compose.yml` builds this Rust API by default: the repo's `.env` sets `API_IMPL=rust`. To deploy the Python API instead, set `API_IMPL` to empty:
 
 ```
-API_IMPL=rust docker compose up -d --build api
+API_IMPL= docker compose up -d --build api
 ```
 
-Leave `API_IMPL` unset (or empty) to go back to Python. Each implementation gets its own image (`http-api` / `http-api-rust`), so switching recreates the container.
+A variable set in the shell overrides `.env`, so leave it out (or set `API_IMPL=rust`) to go back to Rust. Each implementation gets its own image (`http-api` / `http-api-rust`), so switching recreates the container.
 
 ## Differences to the Python version
 
