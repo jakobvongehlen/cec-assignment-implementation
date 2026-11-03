@@ -1016,7 +1016,7 @@
         },
         "overrides": []
       },
-      "description": "already_processed: read again after a partition moved to another consumer, has no effect. unknown_experiment: configured before any consumer was running. incomplete_measurement: dropped after 30 s.",
+      "description": "already_processed: read again after a partition moved to another consumer, has no effect. unknown_experiment: configured before any consumer was running. incomplete_measurement: dropped after 30 s. too_old_at_start: backlog skipped after all consumers were down.",
       "options": {
         "legend": {
           "displayMode": "list",

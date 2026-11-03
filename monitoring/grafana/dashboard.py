@@ -119,7 +119,7 @@ panel("timeseries", "Busy share per consumer", [target("rate(consumer_message_pr
       unit="percentunit", thresholds=[(0.5, "orange")],
       desc="Share of time spent processing messages. A consumer is one Python thread, so 100% is saturated. The autoscaler adds consumers above 50%.")
 panel("timeseries", "Skipped messages", [target("sum by (reason) (rate(consumer_skipped_messages_total[1m]))", "{{reason}}")], 16, 8, 8,
-      unit="reqps", desc="already_processed: read again after a partition moved to another consumer, has no effect. unknown_experiment: configured before any consumer was running. incomplete_measurement: dropped after 30 s.")
+      unit="reqps", desc="already_processed: read again after a partition moved to another consumer, has no effect. unknown_experiment: configured before any consumer was running. incomplete_measurement: dropped after 30 s. too_old_at_start: backlog skipped after all consumers were down.")
 y += 8
 
 # --- notifications ------------------------------------------------------------

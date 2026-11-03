@@ -161,6 +161,11 @@ When a partition moves to another consumer (scaling, crash or restart), the new 
    - A stopped consumer (`SIGTERM`) finishes its message, commits and leaves the group.
    - A crashed consumer's partitions move after the 6 s session timeout, the broker's minimum.
 5. **A failed write stops the consumer.** If a DB write fails (after one reconnect), the consumer exits without committing and its container restarts. Whoever owns the partitions next reads the message again, so a measurement is never half stored.
+6. **After downtime, the backlog is skipped.** If all consumers were down while the producer kept going, the group's committed offsets are hours behind. Replaying that would send every notification in it far too late. So each commit stores its time in the commit metadata (refreshed every 5 s, also when the offset didn't move), and a consumer that gets a partition checks it (`start_offsets`):
+   - Committed less than 15 s ago: a running consumer is handing the partition over (scaling, crash). Continue at the committed offset, nothing is lost.
+   - Older, or without a time (committed by an older version): the group was down. Start at the first message of the last `STARTUP_MAX_AGE_SECONDS` (default 5 s). The skipped messages are counted as `too_old_at_start`. Experiments configured in the skipped part are unknown and their events skipped (`unknown_experiment`).
+
+   The consumer group is `temperature-observability-<topic>`, one per topic, so consumers testing on `group11` never share a group (and its rebalances and offsets) with those reading `experiment`.
 
 Notifications follow the same rules as the producer uses to decide which measurements are notified: `Stabilized` for every measurement that comes back into the range during stabilization, `OutOfRange` for every measurement that leaves it while the experiment runs. The out-of-range flag resets at the start of each phase.
 

@@ -16,6 +16,9 @@ partition to another consumer safe (scaling, crashes):
   the state, measurements are inserted with ON CONFLICT DO NOTHING and the
   notifications service ignores duplicate notifications. Reading an event twice
   therefore has no effect.
+
+After the whole group was down, the backlog is skipped instead (start_offsets):
+its notifications would all be too late.
 """
 from collections import defaultdict
 import sys
@@ -60,6 +63,13 @@ COMMIT_INTERVAL = 1.0
 # a measurement that is still missing readings after this many seconds is dropped,
 # e.g. because the consumer started in the middle of it
 STALE_MEASUREMENT_SECONDS = 30.0
+# After the group was down, a consumer starts at the messages of the last few
+# seconds instead of the backlog, whose notifications would all be too late
+STARTUP_MAX_AGE_SECONDS = float(os.environ.get("STARTUP_MAX_AGE_SECONDS", "5"))
+# A partition whose last commit is younger than this is being handed over by a
+# running consumer (scaling, crash), so the new owner continues without skipping.
+# Commits are refreshed every HANDOFF_SECONDS / 3, also when the offset didn't move.
+HANDOFF_SECONDS = 15.0
 
 # Prometheus metrics, scraped from :METRICS_PORT/metrics
 MESSAGES = Counter("consumer_messages_total", "Kafka messages consumed", ["event_type"])
@@ -186,7 +196,7 @@ class State():
         self.open = defaultdict(dict)
         # partition -> offset after the last processed message
         self.next_offset = {}
-        # partition -> last committed offset
+        # partition -> (last committed offset, when it was committed)
         self.committed = {}
         # set when processing a message failed halfway, e.g. a DB write: nothing may be
         # committed any more, because the message's effects are only partly stored
@@ -393,14 +403,18 @@ class State():
         if self.failed:
             return
         partitions = self.next_offset.keys() if partitions is None else partitions
+        now = time.time()
         offsets = []
         for partition in partitions:
             if partition not in self.next_offset:
                 continue
             offset = self.safe_offset(partition)
-            if self.committed.get(partition) != offset:
-                offsets.append(TopicPartition(self.topic, partition, offset))
-                self.committed[partition] = offset
+            last_offset, last_time = self.committed.get(partition, (None, 0.0))
+            # also when the offset didn't move, so the commit time shows that the partition is being read
+            if last_offset != offset or now - last_time >= HANDOFF_SECONDS / 3:
+                # the commit time goes into the metadata, see start_offsets
+                offsets.append(TopicPartition(self.topic, partition, offset, metadata=f"{now:.3f}"))
+                self.committed[partition] = (offset, now)
         if not offsets:
             return
         try:
@@ -434,12 +448,66 @@ class State():
         # the new owners may configure them
         self.unknown.clear()
 
+def start_offsets(consumer, topic, partitions):
+    """Where to start reading newly assigned partitions.
+
+    A partition that a running consumer hands over (its last commit is younger than
+    HANDOFF_SECONDS) continues at the committed offset, so scaling loses nothing.
+    A partition nobody has read for longer, because the group was down, starts at
+    the messages of the last STARTUP_MAX_AGE_SECONDS: everything before can't be
+    notified within the 10 s any more, and replaying it would flood the
+    notifications service with late notifications. Without any commit,
+    auto.offset.reset starts at the end anyway.
+    """
+    if not partitions:
+        return partitions
+    now = time.time()
+    try:
+        committed = consumer.committed(partitions, timeout=10)
+        stale = []
+        for tp in committed:
+            try:
+                handed_over = now - float(tp.metadata) < HANDOFF_SECONDS
+            except (TypeError, ValueError):
+                # committed by an older version or another tool, without the commit time
+                handed_over = False
+            if tp.offset >= 0 and not handed_over:
+                stale.append(tp)
+        if not stale:
+            return partitions
+        since = int((now - STARTUP_MAX_AGE_SECONDS) * 1000)
+        found = consumer.offsets_for_times([TopicPartition(topic, tp.partition, since) for tp in stale], timeout=10)
+    except KafkaException as e:
+        logger.warning("Could not look up start offsets (%s), continuing at the committed offsets", e)
+        return partitions
+
+    first_recent = {tp.partition: tp.offset for tp in found}
+    start = {}
+    for tp in stale:
+        # -1: no message is that recent, so all of them are too old
+        target = first_recent.get(tp.partition, tp.offset)
+        if target < 0:
+            target = consumer.get_watermark_offsets(TopicPartition(topic, tp.partition), timeout=10)[1]
+        if target > tp.offset:
+            start[tp.partition] = target
+            SKIPPED.labels("too_old_at_start").inc(target - tp.offset)
+            logger.warning(
+                "Partition %d was not read for a while: skipping %d messages older than %.0f s",
+                tp.partition, target - tp.offset, STARTUP_MAX_AGE_SECONDS,
+            )
+    return [
+        TopicPartition(topic, tp.partition, start[tp.partition]) if tp.partition in start else tp
+        for tp in partitions
+    ]
+
 @click.command()
 @click.argument('topic')
 def consume(topic: str):
     consumer = Consumer({
         'bootstrap.servers': 'kafka.cec.dlandau.nl:19092,kafka.cec.dlandau.nl:29092,kafka.cec.dlandau.nl:39092',
-        'group.id': "my_group_1",   # Keep the Group ID constant but change it for each iteration
+        # one group per topic: test consumers on our own topic must not share a group
+        # (and its rebalances) with the consumers of the demo topic
+        'group.id': f"temperature-observability-{topic}",
         'auto.offset.reset': 'latest',
         # committed by State.commit, only up to what is safe to skip
         'enable.auto.commit': 'false',
@@ -467,6 +535,8 @@ def consume(topic: str):
     assigned = set()
 
     def on_assign(_, partitions):
+        # skips the backlog of partitions the group stopped reading, see start_offsets
+        consumer.incremental_assign(start_offsets(consumer, topic, partitions))
         assigned.update(p.partition for p in partitions)
         ASSIGNED_PARTITIONS.set(len(assigned))
         REBALANCES.labels("assigned").inc(len(partitions))
