@@ -1,0 +1,128 @@
+# Load test overlay for ../compose.yml, see README.md. Use it through run.sh:
+#   docker compose -f compose.yml -f loadtest/compose.yml ...
+# Paths are relative to the repository root (the directory of compose.yml).
+#
+# The system under test (consumers, API, Postgres, monitoring) is pinned to
+# SUT_CPUS, 2 cores like the group VM (t3a.medium). The load tools and the
+# notifications service run on TOOL_CPUS, so they don't take CPU from it.
+
+x-sut: &sut
+  cpuset: ${SUT_CPUS:-0,1}
+
+# the consumers read the load test topic and notify the local notifications
+# service: the course service rejects measurements of our own producer
+x-sut-consumer: &sut-consumer
+  cpuset: ${SUT_CPUS:-0,1}
+  command: ["single_consumer.py", "${LOADTEST_TOPIC:-group11}"]
+  environment:
+    NOTIFICATIONS_HOST: http://notifications-service:3000
+
+x-tool: &tool
+  cpuset: ${TOOL_CPUS:-2-7}
+  extra_hosts:
+    - host.docker.internal:host-gateway
+
+services:
+  consumer_1: *sut-consumer
+  consumer_2: *sut-consumer
+  consumer_3: *sut-consumer
+  consumer_4: *sut-consumer
+  consumer_5: *sut-consumer
+  consumer_6: *sut-consumer
+  consumer_7: *sut-consumer
+  consumer_8: *sut-consumer
+  consumer_9: *sut-consumer
+  consumer_10: *sut-consumer
+  consumer_11: *sut-consumer
+  consumer_12: *sut-consumer
+  consumer_13: *sut-consumer
+  consumer_14: *sut-consumer
+  consumer_15: *sut-consumer
+  consumer_16: *sut-consumer
+  api: *sut
+  mypg: *sut
+  cadvisor: *sut
+  node-exporter: *sut
+  grafana: *sut
+  prometheus:
+    <<: *sut
+    command:
+      - --config.file=/etc/loadtest/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=1GB
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - ./loadtest/prometheus.yml:/etc/loadtest/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  # the notifications service of the course, with the key of our producer
+  notifications-service:
+    <<: *tool
+    image: dclandau/cec-notifications-service
+    command: ["--secret-key", "${SECRET_KEY}", "--external-ip", "localhost"]
+    restart: unless-stopped
+
+  # Produces the experiments of loadtest/out/<run>/producer-config.json to the
+  # load test topic, and the document of every finished experiment to the same
+  # topic (our client can't write to another one).
+  experiment-producer:
+    <<: *tool
+    profiles: [loadtest]
+    build:
+      context: .
+      dockerfile: loadtest/rust.Dockerfile
+      args: {PACKAGE: experiment-producer}
+    image: cec-loadtest-producer
+    command:
+      - --secret-key
+      - ${SECRET_KEY}
+      - --brokers
+      - ${BROKERS}
+      - --topic
+      - ${LOADTEST_TOPIC:-group11}
+      - --topic-document
+      - ${LOADTEST_TOPIC:-group11}
+      - --config-file
+      - /config.json
+    volumes:
+      - ./auth:/app/experiment-producer/auth:ro
+      - ${LOADTEST_RUN_DIR:-./loadtest/out}/producer-config.json:/config.json:ro
+    restart: "no"
+
+  # Queries the finished experiments at the rates of LOADTEST_RATES, one rate
+  # per stage of LOADTEST_STAGE_SECONDS, and checks every response.
+  http-load-generator:
+    <<: *tool
+    profiles: [loadtest]
+    build:
+      context: .
+      dockerfile: loadtest/rust.Dockerfile
+      args: {PACKAGE: http-load-generator}
+    image: cec-loadtest-http
+    command:
+      - --brokers
+      - ${BROKERS}
+      - --topic
+      - ${LOADTEST_TOPIC:-group11}
+      - --group-id
+      - ${LOADTEST_GROUP:-loadtest-http}
+      - --consumer-wait-before-send
+      - "${LOADTEST_DOCUMENT_WAIT:-10}"
+      - --hosts-file
+      - /app/hosts.json
+      - --requestor-lag
+      - "0"
+      - --requestor-retries
+      - "0"
+      - --requestor-max-in-flight
+      - "${LOADTEST_MAX_IN_FLIGHT:-100}"
+      - --stable-rate-duration
+      - "${LOADTEST_STAGE_SECONDS:-120}"
+      - --rate-schedule
+      - "${LOADTEST_RATES:-100}"
+    volumes:
+      - ./auth:/app/auth:ro
+      # the API to query, http://api:3003 unless LOADTEST_HOSTS_FILE says otherwise
+      - ${LOADTEST_HOSTS_FILE:-./loadtest/hosts.json}:/app/hosts.json:ro
+    restart: "no"

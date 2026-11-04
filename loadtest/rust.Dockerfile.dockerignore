@@ -1,0 +1,12 @@
+*
+!Cargo.toml
+!Cargo.lock
+!.sqlx
+!event-hash
+!experiment-producer
+!http-load-generator
+!notifications-service
+!notifier
+!test-to-api
+**/target
+**/auth

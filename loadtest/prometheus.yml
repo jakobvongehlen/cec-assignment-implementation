@@ -1,0 +1,38 @@
+# ../monitoring/prometheus/prometheus.yml plus the load generator, scraped
+# every 5 s for the load test report (report.py).
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: node
+    static_configs:
+      - targets: ["host.docker.internal:9100"]
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      - source_labels: [container_label_com_docker_compose_service]
+        regex: ""
+        action: drop
+
+  - job_name: consumer
+    static_configs:
+      - targets: ["consumer_1:8000", "consumer_2:8000", "consumer_3:8000", "consumer_4:8000", "consumer_5:8000", "consumer_6:8000", "consumer_7:8000", "consumer_8:8000", "consumer_9:8000", "consumer_10:8000", "consumer_11:8000", "consumer_12:8000", "consumer_13:8000", "consumer_14:8000", "consumer_15:8000", "consumer_16:8000"]
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: (.*):8000
+        target_label: instance
+
+  # response counts, round trip times and request rates of the load test
+  - job_name: http-load-generator
+    static_configs:
+      - targets: ["http-load-generator:3002"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
