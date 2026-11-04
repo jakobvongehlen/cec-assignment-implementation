@@ -1,5 +1,5 @@
 use async_broadcast::broadcast;
-use tracing::{span, Instrument, Level};
+use tracing::{info, span, Instrument, Level};
 use clap::ArgMatches;
 use futures::future;
 use rand::Rng;
@@ -34,7 +34,8 @@ pub struct ExperimentReceiverConfig {
     requestor_config: RequestorConfiguration,
     batch_size: BatchSize,
     stable_rate: u16,
-    num_generations: u8,
+    num_generations: usize,
+    schedule: Vec<u16>,
 }
 
 impl From<&mut ArgMatches> for ExperimentReceiverConfig {
@@ -52,7 +53,17 @@ impl From<&mut ArgMatches> for ExperimentReceiverConfig {
         let stable_rate = args
             .remove_one::<u16>("stable-rate-duration")
             .expect("Required");
-        let num_generations = args.remove_one::<u8>("num-generations").expect("Required");
+        // a schedule sets the rate of every generation, otherwise each one gets a
+        // random rate between the batch sizes
+        let schedule: Vec<u16> = args
+            .remove_many::<u16>("rate-schedule")
+            .map(|rates| rates.collect())
+            .unwrap_or_default();
+        let num_generations = if schedule.is_empty() {
+            args.remove_one::<u8>("num-generations").expect("Required") as usize
+        } else {
+            schedule.len()
+        };
         let requestor_config = RequestorConfiguration::from(args);
         Self {
             requestor_config,
@@ -60,6 +71,7 @@ impl From<&mut ArgMatches> for ExperimentReceiverConfig {
             batch_size,
             stable_rate,
             num_generations,
+            schedule,
         }
     }
 }
@@ -95,7 +107,8 @@ impl ExperimentReceiver {
         &self,
         batch_rx: async_broadcast::Receiver<Arc<Vec<APIQuery>>>,
         metrics: Metrics,
-    ) {
+    ) -> Vec<tokio::task::JoinHandle<()>> {
+        let mut requestors = vec![];
         for host in self.config.hosts.iter() {
             let batch_rx = batch_rx.clone();
             let mut requestor = Requestor::new(
@@ -106,15 +119,16 @@ impl ExperimentReceiver {
             );
 
             let host_name = host.host_name.clone();
-            tokio::spawn(async move {
+            requestors.push(tokio::spawn(async move {
                 let span = span!(
                     Level::INFO,
                     "http-generator",
                     host=host_name,
                 );
                 requestor.start().instrument(span).await;
-            });
+            }));
         }
+        requestors
     }
 
     pub async fn start(mut self) {
@@ -128,21 +142,31 @@ impl ExperimentReceiver {
 
         self.add_first_experiment().await;
 
-        self.create_requestors(batch_rx, metrics);
+        let requestors = self.create_requestors(batch_rx, metrics);
 
         // Each iteration receives messages and generates load for the next minute
         // Sleep for 60 seconds after generating all the requests, if there are new experiments, read
         // them and generate the load, otherwise just generate the load with the experiments available.
-        for _ in 0..self.config.num_generations {
+        for generation in 0..self.config.num_generations {
             self.receive_experiments().await;
             let mut handles = vec![];
             handles.push(tokio::spawn(async move {
                 time::sleep(Duration::from_millis(self.config.stable_rate as u64 * 1000)).await;
             }));
-            let batch_size = {
-                let mut rng = rand::thread_rng();
-                rng.gen_range(self.config.batch_size.min..self.config.batch_size.max)
+            let batch_size = match self.config.schedule.get(generation) {
+                Some(&rate) => rate,
+                None => {
+                    let mut rng = rand::thread_rng();
+                    rng.gen_range(self.config.batch_size.min..self.config.batch_size.max)
+                }
             };
+            info!(
+                "generation {}: {} queries per second for {} s to each host, {} experiments",
+                generation,
+                batch_size,
+                self.config.stable_rate,
+                self.experiments.read().await.len()
+            );
             handles.append(
                 &mut (0..self.config.stable_rate)
                     .map(|_| {
@@ -156,6 +180,10 @@ impl ExperimentReceiver {
             );
             future::join_all(handles).await;
         }
+        // requestors that fell behind still have batches queued; closing the
+        // channel ends them once these are done
+        drop(batch_tx);
+        future::join_all(requestors).await;
     }
 
     async fn receive_experiments(&mut self) {
