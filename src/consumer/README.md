@@ -179,4 +179,4 @@ Normally every consumer keeps its partition. A partition only moves when its con
 
 Notifications follow the same rules as the producer uses to decide which measurements are notified: `Stabilized` for every measurement that comes back into the range during stabilization, `OutOfRange` for every measurement that leaves it while the experiment runs. The out-of-range flag resets at the start of each phase.
 
-**Metrics** for this are in the Grafana dashboard: consumers up, partitions per consumer, and skipped messages by reason (`already_processed` are replays after a partition moved).
+**Metrics** for this are in the Grafana dashboard: consumers up and skipped messages by reason (`already_processed` are replays after a partition moved).

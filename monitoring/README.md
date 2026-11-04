@@ -8,7 +8,7 @@ It starts with the rest of the stack (`docker compose up -d --build`).
 
 ```
  node-exporter ── VM: CPU, memory, network, disk ─┐
- cAdvisor ─────── CPU and memory per container ───┼──>  Prometheus  ──>  Grafana dashboard
+ cAdvisor ─────── CPU per container ──────────────┼──>  Prometheus  ──>  Grafana dashboard
  consumers ────── Kafka lag, time per message ────┘     (stores the       (:3010)
                                                          numbers, runs
                                                          cost.yml)
@@ -48,16 +48,14 @@ The CPU credits part needs one extra sentence. A t3a VM may use 20% of each vCPU
 
 The metric is `cec:cost_usd_per_hour`, one series per part. The prices are at the top of `cost.yml` (AWS on-demand prices, checked October 2026). Update them if the VM type changes.
 
-**Cost per container (showback).** This is an extra metric, `cec:container:cost_usd_per_hour`. It divides the instance price among the containers by how much CPU and memory each one uses, to show where the money goes. AWS doesn't bill per container, so this is only an attribution. To weigh CPU against memory, it uses the ratio of AWS Fargate's vCPU price to its GiB price. Whatever no container uses (idle capacity, the OS, Docker) is `cec:unused_cost_usd_per_hour`.
-
 ## The dashboard
 
 | Row | Shows |
 |---|---|
-| Estimated cost | cost right now, cost over the selected time range, projected cost per month, cost per part and per container |
-| Where is the bottleneck? | CPU and memory per container, Kafka lag, messages consumed, consumer time per message, VM CPU, memory and network |
-| Consumers | consumers up (should be 16), partitions per consumer (one each), skipped messages |
-| Notifications | notification latency (must stay under 10 s), notifications sent, waiting or failed |
+| Estimated cost | projected cost per month, cost per part over time |
+| Where is the bottleneck? | CPU per container, VM CPU and memory, Kafka lag, messages consumed, consumer time per message |
+| Consumers | consumers up (should be 16), skipped messages |
+| Notifications | notification latency (must stay under 10 s), notifications sent or failed, waiting in the thread pool, notifications over 10 s, active experiments |
 
 ## Finding the bottleneck
 
@@ -65,7 +63,7 @@ The metric is `cec:cost_usd_per_hour`, one series per part. The prices are at th
 |---|---|
 | Consumer | Growing *Kafka consumer lag* for one consumer: it can't keep up with its partition. A consumer is single-threaded Python and owns one partition, so it can't use more than one core. |
 | Postgres | *DB insert* takes most of the *Consumer time per message*, or `mypg` CPU is high. Each measurement is one INSERT. |
-| Notifier | *Notifications waiting in the thread pool* grows, or the *Request time to notifications service* rises. The pool size is `NOTIFICATIONS_MAX_WORKERS`. |
+| Notifier | *Notifications waiting in the thread pool* grows. The pool size is `NOTIFICATIONS_MAX_WORKERS`. |
 | API | `api` CPU in *CPU per container*. Request rate and response times are in the course Grafana (from the HTTP load generator). |
 | VM | *VM CPU* above the 20% line. From then on every hour costs CPU credits. |
 
