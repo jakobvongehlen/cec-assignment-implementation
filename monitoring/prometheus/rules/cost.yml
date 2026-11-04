@@ -4,9 +4,6 @@
 # group VM: a t3a.medium (2 vCPU, 4 GiB) in eu-west-1 with a 20 GiB root volume.
 # Usage only changes the cost through T3a CPU credits and outbound traffic.
 #
-# CPU per container (cAdvisor) is recorded here as well, for the
-# dashboard's bottleneck row.
-#
 # Prices: AWS on-demand, Linux, eu-west-1, USD. Update them if the VM changes.
 groups:
   - name: cost
@@ -60,11 +57,3 @@ groups:
       - record: cec:cost_usd_per_hour
         labels: {component: egress}
         expr: cec:node:egress_bytes_per_second * 3600 / 2^30 * scalar(cec:price_usd:egress_gib)
-
-      # --- usage per container (cAdvisor) -----------------------------------
-      # by compose service, with consumer_1 ... consumer_16 added up as "consumers"
-      - record: cec:container:vcpus_used
-        expr: >
-          sum by (service) (label_replace(label_replace(rate(container_cpu_usage_seconds_total{job="cadvisor"}[1m]),
-          "service", "$1", "container_label_com_docker_compose_service", "(.*)"),
-          "service", "consumers", "service", "consumer_[0-9]+"))

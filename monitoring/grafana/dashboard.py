@@ -64,51 +64,19 @@ panel("timeseries", "Cost over time per component", [target("cec:cost_usd_per_ho
       desc="USD per hour. Only cpu_credits (CPU above the t3a baseline of 20% per vCPU, worst case) and egress depend on the load.")
 y += 8
 
-# --- bottlenecks ------------------------------------------------------------
-row("Where is the bottleneck?")
+# --- load ---------------------------------------------------------------------
+row("Load")
+# by compose service, with consumer_1 ... consumer_16 added up as "consumers"
 panel("timeseries", "CPU per container", [
-        target("cec:container:vcpus_used", "{{service}}"),
+        target('sum by (service) (label_replace(label_replace(rate(container_cpu_usage_seconds_total{job="cadvisor"}[1m]), '
+               '"service", "$1", "container_label_com_docker_compose_service", "(.*)"), '
+               '"service", "consumers", "service", "consumer_[0-9]+"))', "{{service}}"),
         target("cec:node:vcpus", "VM vCPUs", "B")], 0, 12, 8, unit="none", decimals=2,
-      desc="vCPUs in use. 'consumers' adds up the 16 consumer containers.")
-panel("timeseries", "VM CPU and memory", [
-        target("cec:node:vcpus_used / cec:node:vcpus", "CPU"),
-        target("cec:node:memory_used_gib / cec:node:memory_gib", "memory", "B"),
-        target("cec:instance:baseline_vcpu_fraction", "t3a CPU baseline", "C")], 12, 12, 8, unit="percentunit")
+      desc="vCPUs in use per compose service. 'consumers' adds up the 16 consumer containers. The VM has 2 vCPUs.")
+panel("timeseries", "Kafka consumer lag", [target("sum(consumer_lag_messages)", "messages waiting")], 12, 12, 8,
+      unit="short", decimals=0,
+      desc="Messages in Kafka that the 16 consumers have not read yet. Near 0: they keep up. Growing: they fall behind, and notifications arrive later and later.")
 y += 8
-panel("timeseries", "Kafka consumer lag", [target("sum by (instance) (consumer_lag_messages)", "{{instance}}")], 0, 8, 8,
-      unit="short", desc="Messages waiting per consumer. Growing lag means the consumers cannot keep up, and notification latency grows with it.")
-panel("timeseries", "Messages consumed", [target("sum by (instance) (rate(consumer_messages_total[1m]))", "{{instance}}")], 8, 8, 8,
-      unit="reqps", stack=True)
-panel("timeseries", "Consumer time per message (p95)", [
-        target("histogram_quantile(0.95, sum by (le) (rate(consumer_message_processing_seconds_bucket[1m])))", "decode + process"),
-        target("histogram_quantile(0.95, sum by (le) (rate(consumer_db_write_seconds_bucket[1m])))", "DB insert", "B")], 16, 8, 8,
-      unit="s", desc="If the DB insert is most of the time, Postgres or the round trip to it is the bottleneck.")
-y += 8
-
-# --- consumers ---------------------------------------------------------------
-row("Consumers (16, one per partition)")
-panel("timeseries", "Consumers up", [target("count(up{job=\"consumer\"} == 1)", "running")], 0, 12, 8,
-      unit="short", decimals=0, thresholds=[(16, "green")], desc="Consumers Prometheus can reach. Should be 16, each owning one partition.")
-panel("timeseries", "Skipped messages", [target("sum by (reason) (rate(consumer_skipped_messages_total[1m]))", "{{reason}}")], 12, 12, 8,
-      unit="reqps", desc="already_processed: read again after a partition moved to another consumer, has no effect. unknown_experiment: configured before any consumer was running. incomplete_measurement: dropped after 30 s. too_old_at_start: backlog skipped after all consumers were down.")
-y += 8
-
-# --- notifications ------------------------------------------------------------
-row("Notifications (SLA: < 10 s)")
-panel("timeseries", "Notification latency", [
-        target("histogram_quantile(0.5, sum by (le) (rate(notification_latency_seconds_bucket[1m])))", "p50"),
-        target("histogram_quantile(0.95, sum by (le) (rate(notification_latency_seconds_bucket[1m])))", "p95", "B"),
-        target("histogram_quantile(0.99, sum by (le) (rate(notification_latency_seconds_bucket[1m])))", "p99", "C")], 0, 12, 8,
-      unit="s", thresholds=[(10, "red")], desc="Latency reported by the notifications service: measurement produced -> notification received")
-panel("timeseries", "Notifications sent", [target("sum by (notification_type, outcome) (rate(notifications_total[1m]))", "{{notification_type}} {{outcome}}")], 12, 6, 8,
-      unit="reqps", desc="outcome=error are failed requests to the notifications service.")
-panel("timeseries", "Notifications waiting in the thread pool", [target("sum by (instance) (notifications_pending)", "{{instance}}")], 18, 6, 8,
-      unit="short", desc="Queued or in flight. Growing means the notifier pool or the notifications service is the bottleneck.")
-y += 8
-panel("stat", "Notifications over 10 s in range", [target(
-        "sum(increase(notification_latency_seconds_count[$__range])) - sum(increase(notification_latency_seconds_bucket{le=\"10.0\"}[$__range]))", instant=True)],
-      0, 12, 4, unit="short", decimals=0, thresholds=[(1, "red")], options=STAT)
-panel("stat", "Active experiments", [target("sum(consumer_active_experiments)", instant=True)], 12, 12, 4, unit="short", options=STAT)
 
 dash = {"title": "Temperature Observability", "uid": "temperature-observability", "editable": False,
         "refresh": "10s", "schemaVersion": 39, "tags": ["cec"], "time": {"from": "now-1h", "to": "now"},
