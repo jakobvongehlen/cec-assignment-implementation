@@ -25,10 +25,8 @@ EXPERIMENT_SECONDS=${EXPERIMENT_SECONDS:-30}
 SENSORS=${SENSORS:-2}
 export LOADTEST_TOPIC=group11
 export LOADTEST_DOCUMENT_WAIT=${LOADTEST_DOCUMENT_WAIT:-10}
-# Connections to the API. ~40 ms away, 200 allow ~5,000 req/s. Not much more:
-# the API container may only open 1,024 files (Docker's default), and at about
-# 1,000 client connections it can't open sockets any more and hangs for good
-# (see README.md).
+# Connections to the API. More than 200 don't get more requests through the
+# dev machine's connection (requests take 70-230 ms there, see README.md).
 export LOADTEST_MAX_IN_FLIGHT=${LOADTEST_MAX_IN_FLIGHT:-200}
 export LOADTEST_STAGE_SECONDS=$STAGE_SECONDS
 host=${VM#*@}

@@ -121,7 +121,8 @@ Runs the same test against the group VM (`VM`, default
 
 `api-bench.sh` measures the API on the VM without the network in between, with
 [`oha`](https://github.com/hatoo/oha) and the URLs of `api-urls.sql` (the
-comments in it say how).
+comments in it say how). `fd-repro.py` checks that the API keeps answering
+while more clients are connected than it may open files.
 
 ## Limits of the setup
 
@@ -180,14 +181,25 @@ and the notifications service on the VM (~0.3 cores) that would be about
   ~0.055 ms CPU per request; 1,000 req/s cost about as much CPU as 40
   events/s (20 experiments).
 
-**Found: the API hangs for good at ~1,000 client connections.** The API
-container may open 1,024 files (Docker's default soft limit). With the load
-generator at 1,000 connections in flight it reached 1,018 open sockets, after
-which it accepted no connections (kernel: "Possible SYN flooding on port
-3003"), couldn't connect to Postgres, and waited forever for a pool connection
-(`pool.get()` has no timeout). It only came back after a restart. Fix: raise
-the limit in `compose.yml` (`ulimits: nofile: 65536`) and give the pool a
-wait timeout. `run-vm.sh` uses 200 connections for that reason.
+**Found and fixed: the API stopped answering at ~1,000 client connections.**
+The API container could open 1,024 files (Docker's default soft limit), one
+per client connection. With the load generator at 1,000 connections it reached
+1,018 open sockets. From then on it accepted no connections (kernel: "Possible
+SYN flooding on port 3003") and couldn't open database connections. Requests
+waited forever for one, because the pool had no timeout. The load generator
+never gives up on a request, so it stayed like that until a restart.
+`fd-repro.py` shows it on the VM: while 1,100 idle connections are held, a
+request gets no answer within 15 s. The fix:
+
+- `compose.yml` raises the API's limit to 65,536 open files: with 3,000 held
+  connections, requests are answered in 0.05 s.
+- A request may spend at most `DB_TIMEOUT` (5 s) on the database, getting a
+  connection and the query together, then it fails with a 500 instead of
+  hanging. With Postgres paused: 500 after 5.0 s, 200 again once it's back.
+  A cache refresh may take at most 60 s.
+
+`run-vm.sh` uses 200 connections, as more don't get more requests through the
+dev machine's connection anyway.
 
 ## Results on the dev machine (2026-11-04)
 
