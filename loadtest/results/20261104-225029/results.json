@@ -1,0 +1,256 @@
+{
+  "t0": 1793829053.9089248,
+  "plan": {
+    "stage_seconds": 90,
+    "experiment_seconds": 30,
+    "sensors": 2,
+    "warmup": 42,
+    "duration": 612,
+    "experiments_total": 9520,
+    "rate_schedule": "250,500,1000,2000,4000,8000",
+    "stages": [
+      {
+        "stage": 1,
+        "experiments": 50,
+        "rate": 250,
+        "start": 42,
+        "end": 132,
+        "steady_start": 42
+      },
+      {
+        "stage": 2,
+        "experiments": 100,
+        "rate": 500,
+        "start": 132,
+        "end": 222,
+        "steady_start": 162
+      },
+      {
+        "stage": 3,
+        "experiments": 200,
+        "rate": 1000,
+        "start": 222,
+        "end": 312,
+        "steady_start": 252
+      },
+      {
+        "stage": 4,
+        "experiments": 400,
+        "rate": 2000,
+        "start": 312,
+        "end": 402,
+        "steady_start": 342
+      },
+      {
+        "stage": 5,
+        "experiments": 800,
+        "rate": 4000,
+        "start": 402,
+        "end": 492,
+        "steady_start": 432
+      },
+      {
+        "stage": 6,
+        "experiments": 1600,
+        "rate": 8000,
+        "start": 492,
+        "end": 582,
+        "steady_start": 522
+      }
+    ]
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "experiments": 50,
+      "target_rate": 250,
+      "window_seconds": 90,
+      "events_per_s": 115.2208443330766,
+      "lag_max": 4.0,
+      "processing_p99_ms": 6.6645597722807635,
+      "notifications": 693.8293542634434,
+      "notification_errors": 0.0,
+      "latency_p50": 0.1738989011701954,
+      "latency_p99": 1.2017799810590928,
+      "late": 0.0,
+      "http_window_seconds": 75,
+      "http_window_offset": 55.00007510185242,
+      "achieved_rate": 257.5574721102052,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 2.672571777642028,
+      "rtt_p99_ms": 16.85121107266436,
+      "cpu": {
+        "consumers": 0.10895869679055298,
+        "api": 0.012812985124893426,
+        "postgres": 0.05857263627669747,
+        "monitoring": 0.03150640594311345
+      },
+      "cpu_total": 0.21185072413525732,
+      "memory_mb": 1083.0078125,
+      "consumer_ok": true,
+      "api_ok": true
+    },
+    {
+      "stage": 2,
+      "experiments": 100,
+      "target_rate": 500,
+      "window_seconds": 60,
+      "events_per_s": 187.4342065897103,
+      "lag_max": 14.0,
+      "processing_p99_ms": 5.876579684434724,
+      "notifications": 705.9135712118806,
+      "notification_errors": 0.0,
+      "latency_p50": 0.19490347848197404,
+      "latency_p99": 1.495627726816851,
+      "late": 0.0,
+      "http_window_seconds": 70,
+      "http_window_offset": 145.00007510185242,
+      "achieved_rate": 518.167758804866,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 2.9418154169231325,
+      "rtt_p99_ms": 20.740905057675235,
+      "cpu": {
+        "consumers": 0.13783646765674962,
+        "api": 0.022754053966923506,
+        "postgres": 0.06745059729227507,
+        "monitoring": 0.02961776489783499
+      },
+      "cpu_total": 0.25765888381378316,
+      "memory_mb": 1080.6015625,
+      "consumer_ok": true,
+      "api_ok": true
+    },
+    {
+      "stage": 3,
+      "experiments": 200,
+      "target_rate": 1000,
+      "window_seconds": 60,
+      "events_per_s": 156.42714189569153,
+      "lag_max": 57.0,
+      "processing_p99_ms": 10.12657956543772,
+      "notifications": 592.3281795806042,
+      "notification_errors": 1.0330578512396693,
+      "latency_p50": 0.2968855127847934,
+      "latency_p99": 2.8914636066628274,
+      "late": 0.0,
+      "http_window_seconds": 75,
+      "http_window_offset": 230.00007510185242,
+      "achieved_rate": 1012.2335656650376,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 2.924025464084613,
+      "rtt_p99_ms": 22.98929098966029,
+      "cpu": {
+        "consumers": 0.12654570478895247,
+        "api": 0.04759582143030069,
+        "postgres": 0.04309880748716281,
+        "monitoring": 0.03372171531279262
+      },
+      "cpu_total": 0.2509620490192086,
+      "memory_mb": 1076.9453125,
+      "consumer_ok": false,
+      "api_ok": true
+    },
+    {
+      "stage": 4,
+      "experiments": 400,
+      "target_rate": 2000,
+      "window_seconds": 60,
+      "events_per_s": 594.2847163115205,
+      "lag_max": 110.0,
+      "processing_p99_ms": 10.468841807029786,
+      "notifications": 2404.0891367417203,
+      "notification_errors": 11.113498456138796,
+      "latency_p50": 2.2623370567389567,
+      "latency_p99": 5.675103967282657,
+      "late": 0.0,
+      "http_window_seconds": 70,
+      "http_window_offset": 320.0000751018524,
+      "achieved_rate": 2062.4935547076416,
+      "http_errors": {
+        "ValidationError": 15382.07693100959
+      },
+      "http_error_share": 0.10654285714285716,
+      "rtt_p50_ms": 4.703820697954272,
+      "rtt_p99_ms": 47.204660194174686,
+      "cpu": {
+        "consumers": 0.3732369613907267,
+        "api": 0.10314136591929009,
+        "postgres": 0.14838933520680048,
+        "monitoring": 0.03767057512424605
+      },
+      "cpu_total": 0.6624382376410634,
+      "memory_mb": 1121.0546875,
+      "consumer_ok": false,
+      "api_ok": false
+    },
+    {
+      "stage": 5,
+      "experiments": 800,
+      "target_rate": 4000,
+      "window_seconds": 60,
+      "events_per_s": 575.2965401173327,
+      "lag_max": 160.0,
+      "processing_p99_ms": 8.376871621585513,
+      "notifications": 2216.3188732868475,
+      "notification_errors": 131.91468115252135,
+      "latency_p50": 2.3232939177530607,
+      "latency_p99": 6.868522346935109,
+      "late": 0.0,
+      "http_window_seconds": 75,
+      "http_window_offset": 405.0000751018524,
+      "achieved_rate": 4131.0120979640005,
+      "http_errors": {
+        "ValidationError": 57644.21658306285
+      },
+      "http_error_share": 0.18605357142857143,
+      "rtt_p50_ms": 3.8303618847857797,
+      "rtt_p99_ms": 46.588101068566225,
+      "cpu": {
+        "consumers": 0.28955917905504613,
+        "api": 0.23470916915388354,
+        "postgres": 0.13339099149140304,
+        "monitoring": 0.034824131597852644
+      },
+      "cpu_total": 0.6924834712981853,
+      "memory_mb": 1200.35546875,
+      "consumer_ok": false,
+      "api_ok": false
+    },
+    {
+      "stage": 6,
+      "experiments": 1600,
+      "target_rate": 8000,
+      "window_seconds": 60,
+      "events_per_s": 509.16388716105155,
+      "lag_max": 147.0,
+      "processing_p99_ms": 9.24905025043124,
+      "notifications": 1954.3838625097292,
+      "notification_errors": 218.89376357511384,
+      "latency_p50": 1.674542916009575,
+      "latency_p99": 6.705272637375159,
+      "late": 0.0,
+      "http_window_seconds": 70,
+      "http_window_offset": 495.0000751018524,
+      "achieved_rate": 8264.594160746357,
+      "http_errors": {
+        "ValidationError": 110364.11894658214
+      },
+      "http_error_share": 0.1907692307692308,
+      "rtt_p50_ms": 4.109888736092012,
+      "rtt_p99_ms": 44.238537117903896,
+      "cpu": {
+        "consumers": 0.2815151713220712,
+        "api": 0.3214507279073726,
+        "postgres": 0.12718755347570238,
+        "monitoring": 0.037388946267383205
+      },
+      "cpu_total": 0.7675423989725294,
+      "memory_mb": 1259.95703125,
+      "consumer_ok": false,
+      "api_ok": false
+    }
+  ]
+}

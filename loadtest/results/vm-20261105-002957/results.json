@@ -1,0 +1,142 @@
+{
+  "t0": 1793835081.1609602,
+  "plan": {
+    "stage_seconds": 120,
+    "experiment_seconds": 30,
+    "sensors": 2,
+    "warmup": 42,
+    "duration": 432,
+    "experiments_total": 6630,
+    "rate_schedule": "100,150,200",
+    "stages": [
+      {
+        "stage": 1,
+        "experiments": 450,
+        "rate": 100,
+        "start": 42,
+        "end": 162,
+        "steady_start": 42
+      },
+      {
+        "stage": 2,
+        "experiments": 500,
+        "rate": 150,
+        "start": 162,
+        "end": 282,
+        "steady_start": 192
+      },
+      {
+        "stage": 3,
+        "experiments": 550,
+        "rate": 200,
+        "start": 282,
+        "end": 402,
+        "steady_start": 312
+      }
+    ]
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "experiments": 450,
+      "target_rate": 100,
+      "window_seconds": 120,
+      "events_per_s": 973.3265190302086,
+      "lag_max": 328.0,
+      "processing_p99_ms": 76.65824062149674,
+      "notifications": 7607.970952986063,
+      "notification_errors": 0.0,
+      "latency_p50": 0.21114337986376647,
+      "latency_p99": 0.9064834081268385,
+      "late": 0.0,
+      "http_window_seconds": 105,
+      "http_window_offset": 60.00003981590271,
+      "achieved_rate": 102.44123151594923,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 86.88958619337126,
+      "rtt_p99_ms": 511.78217821782056,
+      "cpu": {
+        "consumers": 1.0344172072329636,
+        "api": 0.018446179830720767,
+        "postgres": 0.305579339066775,
+        "monitoring": 0.05202812996236856
+      },
+      "cpu_total": 1.4104708560928279,
+      "cpu_tools": 0.26604568584379396,
+      "machine_busy": 0.940869565219011,
+      "machine_steal": 0.006043478260867034,
+      "memory_mb": 683.92578125,
+      "consumer_ok": true,
+      "api_ok": true
+    },
+    {
+      "stage": 2,
+      "experiments": 500,
+      "target_rate": 150,
+      "window_seconds": 90,
+      "events_per_s": 1053.0198476839755,
+      "lag_max": 4945.0,
+      "processing_p99_ms": 89.74799417913421,
+      "notifications": 6102.0489796207285,
+      "notification_errors": 0.0,
+      "latency_p50": 2.8316170721111074,
+      "latency_p99": 14.229141847928986,
+      "late": 314.4698408656195,
+      "http_window_seconds": 105,
+      "http_window_offset": 180.0000398159027,
+      "achieved_rate": 150.60699588477365,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 152.04413892908815,
+      "rtt_p99_ms": 953.8424657534247,
+      "cpu": {
+        "consumers": 1.0846496636092564,
+        "api": 0.025909698321900734,
+        "postgres": 0.31939358919035543,
+        "monitoring": 0.0536551416381711
+      },
+      "cpu_total": 1.4836080927596837,
+      "cpu_tools": 0.3101883066243302,
+      "machine_busy": 0.9975882352932411,
+      "machine_steal": 0.0002352941176468448,
+      "memory_mb": 768.08203125,
+      "consumer_ok": false,
+      "api_ok": true
+    },
+    {
+      "stage": 3,
+      "experiments": 550,
+      "target_rate": 200,
+      "window_seconds": 90,
+      "events_per_s": 989.5570820784906,
+      "lag_max": 26558.0,
+      "processing_p99_ms": 92.53746347624842,
+      "notifications": 5619.137352253955,
+      "notification_errors": 0.0,
+      "latency_p50": 15.893720515369223,
+      "latency_p99": 53.10784018843307,
+      "late": 4180.187442841537,
+      "http_window_seconds": 100,
+      "http_window_offset": 300.0000398159027,
+      "achieved_rate": 201.6411817331126,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 234.84274898078053,
+      "rtt_p99_ms": 917.070035460993,
+      "cpu": {
+        "consumers": 1.0503733525980294,
+        "api": 0.043672268671001886,
+        "postgres": 0.32449017722891865,
+        "monitoring": 0.05320394720515581
+      },
+      "cpu_total": 1.4717397457031058,
+      "cpu_tools": 0.3489952179554741,
+      "machine_busy": 0.9994705882361706,
+      "machine_steal": 0.0,
+      "memory_mb": 821.7734375,
+      "consumer_ok": false,
+      "api_ok": true
+    }
+  ]
+}

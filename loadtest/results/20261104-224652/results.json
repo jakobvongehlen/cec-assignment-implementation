@@ -1,0 +1,90 @@
+{
+  "t0": 1793828850.5124865,
+  "plan": {
+    "stage_seconds": 45,
+    "experiment_seconds": 15,
+    "sensors": 2,
+    "warmup": 27,
+    "duration": 132,
+    "experiments_total": 108,
+    "rate_schedule": "50,100",
+    "stages": [
+      {
+        "stage": 1,
+        "experiments": 10,
+        "rate": 50,
+        "start": 27,
+        "end": 72,
+        "steady_start": 27
+      },
+      {
+        "stage": 2,
+        "experiments": 20,
+        "rate": 100,
+        "start": 72,
+        "end": 117,
+        "steady_start": 87
+      }
+    ]
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "experiments": 10,
+      "target_rate": 50,
+      "window_seconds": 45,
+      "events_per_s": 24.249668532481614,
+      "lag_max": 0.0,
+      "processing_p99_ms": 4.863516765348713,
+      "notifications": 94.86233402112994,
+      "notification_errors": 0.0,
+      "latency_p50": 0.17917073179671472,
+      "latency_p99": 0.8293903140673649,
+      "late": 0.0,
+      "achieved_rate": 50.87776161430553,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 2.5558160484921424,
+      "rtt_p99_ms": 7.710500727356248,
+      "cpu": {
+        "consumers": 0.051954707607371226,
+        "api": 0.0053474086906308655,
+        "postgres": 0.03838904503562322,
+        "monitoring": 0.028455666556964066
+      },
+      "cpu_total": 0.12414682789058938,
+      "memory_mb": 1047.70703125,
+      "consumer_ok": true,
+      "api_ok": true
+    },
+    {
+      "stage": 2,
+      "experiments": 20,
+      "target_rate": 100,
+      "window_seconds": 30,
+      "events_per_s": 0.0,
+      "lag_max": 0.0,
+      "processing_p99_ms": 0,
+      "notifications": 0.0,
+      "notification_errors": 0.0,
+      "latency_p50": null,
+      "latency_p99": null,
+      "late": 0.0,
+      "achieved_rate": 100.0,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 2.5,
+      "rtt_p99_ms": 4.95,
+      "cpu": {
+        "consumers": 0.02132965255027175,
+        "api": 0.007296381832178588,
+        "postgres": 0.026377391054221207,
+        "monitoring": 0.024121624935082797
+      },
+      "cpu_total": 0.07912505037175434,
+      "memory_mb": 1059.02734375,
+      "consumer_ok": false,
+      "api_ok": true
+    }
+  ]
+}

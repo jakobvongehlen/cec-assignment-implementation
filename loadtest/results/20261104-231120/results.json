@@ -1,0 +1,100 @@
+{
+  "t0": 1793830307.1379616,
+  "plan": {
+    "stage_seconds": 45,
+    "experiment_seconds": 15,
+    "sensors": 2,
+    "warmup": 27,
+    "duration": 132,
+    "experiments_total": 216,
+    "rate_schedule": "300,600",
+    "stages": [
+      {
+        "stage": 1,
+        "experiments": 20,
+        "rate": 300,
+        "start": 27,
+        "end": 72,
+        "steady_start": 27
+      },
+      {
+        "stage": 2,
+        "experiments": 40,
+        "rate": 600,
+        "start": 72,
+        "end": 117,
+        "steady_start": 87
+      }
+    ]
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "experiments": 20,
+      "target_rate": 300,
+      "window_seconds": 45,
+      "events_per_s": 48.440844655894345,
+      "lag_max": 2.0,
+      "processing_p99_ms": 6.279994048219443,
+      "notifications": 170.9858007884477,
+      "notification_errors": 0.0,
+      "latency_p50": 0.18039979862908379,
+      "latency_p99": 0.8956853304467454,
+      "late": 0.0,
+      "http_window_seconds": 25,
+      "http_window_offset": 45.000038385391235,
+      "achieved_rate": 316.99070160608625,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 2.7437351381013353,
+      "rtt_p99_ms": 12.671232876712361,
+      "cpu": {
+        "consumers": 0.08042062641863662,
+        "api": 0.017307992939730198,
+        "postgres": 0.051156491376573916,
+        "monitoring": 0.03123745512536279
+      },
+      "cpu_total": 0.18012256586030354,
+      "cpu_tools": 0.09171005303401726,
+      "machine_busy": -0.014134162273129247,
+      "machine_steal": 0.0,
+      "memory_mb": 1307.765625,
+      "consumer_ok": true,
+      "api_ok": true
+    },
+    {
+      "stage": 2,
+      "experiments": 40,
+      "target_rate": 600,
+      "window_seconds": 30,
+      "events_per_s": 94.91759024275939,
+      "lag_max": 0.0,
+      "processing_p99_ms": 4.977839599553122,
+      "notifications": 243.53096223341618,
+      "notification_errors": 0.0,
+      "latency_p50": 0.1968971801187267,
+      "latency_p99": 1.8828296998697662,
+      "late": 0.0,
+      "http_window_seconds": 30,
+      "http_window_offset": 85.00003838539124,
+      "achieved_rate": 621.272365805169,
+      "http_errors": {},
+      "http_error_share": 0.0,
+      "rtt_p50_ms": 2.984718242597899,
+      "rtt_p99_ms": 18.818681318681257,
+      "cpu": {
+        "consumers": 0.09961650533237493,
+        "api": 0.03308078983430866,
+        "postgres": 0.05909593372288396,
+        "monitoring": 0.028862933467701937
+      },
+      "cpu_total": 0.22065616235726948,
+      "cpu_tools": 0.1374937476429293,
+      "machine_busy": 0.009484758117932146,
+      "machine_steal": 0.0,
+      "memory_mb": 1317.83203125,
+      "consumer_ok": true,
+      "api_ok": true
+    }
+  ]
+}

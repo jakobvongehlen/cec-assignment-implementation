@@ -1,0 +1,27 @@
+{
+  "stage_seconds": 45,
+  "experiment_seconds": 15,
+  "sensors": 2,
+  "warmup": 27,
+  "duration": 132,
+  "experiments_total": 216,
+  "rate_schedule": "300,600",
+  "stages": [
+    {
+      "stage": 1,
+      "experiments": 20,
+      "rate": 300,
+      "start": 27,
+      "end": 72,
+      "steady_start": 27
+    },
+    {
+      "stage": 2,
+      "experiments": 40,
+      "rate": 600,
+      "start": 72,
+      "end": 117,
+      "steady_start": 87
+    }
+  ]
+}
