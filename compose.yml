@@ -67,6 +67,10 @@ services:
       # one uvicorn worker (Python) or thread (Rust) per core; total DB connections = WORKERS * POOL_SIZE
       WORKERS: ${API_WORKERS:-2}
       POOL_SIZE: ${API_POOL_SIZE:-10}
+    # one file per client connection; Docker's default of 1,024 ran out at
+    # ~1,000 connections in the load test (loadtest/README.md)
+    ulimits:
+      nofile: {soft: 65536, hard: 65536}
     ports:
       - "3003:3003"
     depends_on:

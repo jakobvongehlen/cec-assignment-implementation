@@ -25,6 +25,7 @@ A variable set in the shell overrides `.env`, so leave it out (or set `API_IMPL=
 | `DATABASE_URL` | `postgresql://postgres:cec@mypg/temp_db`  | Postgres connection string                    |
 | `WORKERS`      | number of cores                           | Worker threads                                |
 | `POOL_SIZE`    | `10`                                      | DB connections per worker (total = workers × pool size) |
+| `DB_TIMEOUT`   | `5`                                       | Seconds a request may spend on the database (connection and query) before it fails with a 500 |
 | `CACHE_SIZE`   | `8000`                                    | Cached experiments, `0` turns the cache off   |
 | `CACHE_REFRESH`| `1`                                       | Seconds between checks for newly terminated experiments |
 | `PORT`         | `3003`                                    | Port to listen on                             |
