@@ -18,3 +18,5 @@ venv/
 .vscode/
 group11/
 loadtest/out/
+# kept load test runs, see loadtest/keep.sh
+!loadtest/results/**/*.log.xz

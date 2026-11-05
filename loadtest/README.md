@@ -14,7 +14,9 @@ STAGE_SECONDS=120 EXPERIMENT_SECONDS=60 loadtest/run.sh 100:500,300:1500
 The run takes `warmup + stages × STAGE_SECONDS` (about 10 min for the default
 stages). At the end it prints a report and saves it with the raw numbers in
 `loadtest/out/<run>/` (`report.md`, `results.json`, the producer config, the
-tool logs).
+tool logs). `loadtest/out/` is not in git; `loadtest/keep.sh <run>` copies a
+run to [`loadtest/results/`](results/README.md) with compressed logs. The runs
+behind the numbers below are there.
 
 ## What runs
 
