@@ -5,7 +5,7 @@ use rdkafka::{
     config::ClientConfig,
     consumer::stream_consumer::StreamConsumer,
     consumer::{CommitMode, Consumer, ConsumerContext, Rebalance},
-    message::Message,
+    message::{Headers, Message},
 };
 use tokio::{
     sync::mpsc::Sender,
@@ -88,12 +88,27 @@ impl Consume {
                 },
                 Ok(b) => {
                     let m = b.detach();
-                    let reader = Reader::new(m.payload().unwrap()).unwrap();
-                    for value in reader {
-                        let mut experiment_document: ExperimentDocument =
-                            from_value::<ExperimentDocumentData>(&value.unwrap())
-                                .expect("Received invalid event")
-                                .into();
+                    // Experiment documents have no `record_name` header. When they share the
+                    // topic with the experiment events (our client can only write to the group
+                    // topic, see loadtest/README.md), the events are skipped here.
+                    if m.headers().map_or(false, |headers| {
+                        (0..headers.count()).any(|i| headers.get(i).map_or(false, |(name, _)| name == "record_name"))
+                    }) {
+                        self.consumer.commit_message(&b, CommitMode::Async).unwrap();
+                        continue;
+                    }
+                    let documents: Vec<ExperimentDocumentData> = match m.payload().map(Reader::new) {
+                        Some(Ok(reader)) => reader
+                            .filter_map(|value| value.ok())
+                            .filter_map(|value| from_value::<ExperimentDocumentData>(&value).ok())
+                            .collect(),
+                        _ => vec![],
+                    };
+                    if documents.is_empty() {
+                        error!("skipping message at offset {} that is not an experiment document", m.offset());
+                    }
+                    for document in documents {
+                        let mut experiment_document: ExperimentDocument = document.into();
                         experiment_document
                             .measurements
                             .sort_by(|a, b| a.partial_cmp(b).unwrap());

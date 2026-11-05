@@ -1,3 +1,125 @@
+# Our implementation
+
+Temperature Observability, as deployed on the group VM. The assignment text
+follows below, from [Learning Objectives](#learning-objectives) on. Details
+are in the READMEs of the parts: [consumers](src/consumer/README.md),
+[HTTP API](src/http-api-rust/README.md), [monitoring](monitoring/README.md),
+[load test](loadtest/README.md).
+
+## Architecture
+
+The bottlenecks (⚠ B1–B8) are described [below the diagrams](#bottlenecks).
+
+```mermaid
+flowchart TB
+    subgraph course_in["Course infrastructure, AWS eu-west-1"]
+        producer["Experiment producer<br/>demo workload"]
+        kafka[("Kafka, 3 brokers<br/>topic experiment: 16 partitions,<br/>keyed by experiment id<br/>⚠ B4")]
+    end
+
+    subgraph vm["Group VM: AWS t3a.medium · 2 vCPU ⚠ B1 B7 · 4 GB RAM · 19 GB disk ⚠ B8"]
+        subgraph consumers["16 consumers: Python, one process per partition ⚠ B2"]
+            c1["consumer-1<br/>partition 0"]
+            cx["consumer-2 … consumer-15"]
+            c16["consumer-16<br/>partition 15"]
+        end
+        pg[("Postgres 16 ⚠ B3<br/>measurements · experiments ·<br/>experiments_terminated")]
+        api["HTTP API, Rust/axum :3003 ⚠ B5<br/>2 threads · cache of the 8,000 latest<br/>terminated experiments · 20 DB connections"]
+        subgraph mon["Monitoring"]
+            cadvisor["cAdvisor<br/>CPU, memory per container"]
+            nodeexp["node-exporter<br/>VM CPU, memory, disk"]
+            prom[("Prometheus :3008<br/>cost rules · 30 days / 1 GB")]
+            grafana["Grafana :3010<br/>cost · CPU per container · Kafka lag"]
+        end
+    end
+
+    subgraph course_out["Course infrastructure"]
+        notif["Notifications service ⚠ B6<br/>notifications.cec.dlandau.nl"]
+        http["HTTP load generator / researchers"]
+        cprom["Course Prometheus"]
+    end
+
+    producer -->|"Avro events:<br/>1 per sensor per second"| kafka
+    kafka -->|"1 partition per consumer,<br/>static membership"| consumers
+    consumers -->|"1 INSERT per measurement (autocommit),<br/>experiment state when it changes"| pg
+    consumers -->|"POST /api/notify<br/>15 threads per consumer"| notif
+    http -->|"GET /temperature<br/>GET /temperature/out-of-range"| api
+    api -->|"new terminated experiments every 1 s,<br/>cache misses (DB_TIMEOUT 5 s)"| pg
+    consumers -.->|":8000/metrics"| prom
+    cadvisor -.-> prom
+    nodeexp -.-> prom
+    prom -.-> grafana
+    cprom -.->|"federates node_*"| prom
+
+    classDef bottleneck stroke:#d73a49,stroke-width:3px
+    class kafka,pg,api,notif bottleneck
+    style consumers stroke:#d73a49,stroke-width:3px
+    style vm stroke:#d73a49,stroke-width:3px
+```
+
+**One measurement, from Kafka to the API.** All events of an experiment are
+in one partition, so one consumer handles the whole experiment, in order. The
+experiment's state is in Postgres as well, so another consumer can take the
+partition over (see the [consumer README](src/consumer/README.md)).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Producer (course)
+    participant K as Kafka partition
+    participant C as Consumer (Python)
+    participant N as Notifications service
+    participant DB as Postgres
+    participant A as HTTP API
+    P->>K: sensor_temperature_measured, one per sensor
+    K->>C: poll, one message at a time (B2)
+    Note over C: keeps the readings in memory until every<br/>sensor of the measurement has arrived,<br/>then averages them
+    opt leaves the range (experiment running) or comes back into it (stabilizing)
+        C-)N: POST /api/notify from a thread pool, doesn't block (B6)
+    end
+    C->>DB: INSERT measurement once the experiment runs, its own commit (B3)
+    Note over C,K: every 1 s it commits the Kafka offsets up to<br/>the oldest incomplete measurement
+    P->>K: experiment_terminated
+    K->>C: poll
+    C->>DB: INSERT experiments_terminated
+    A->>DB: every 1 s, any newly terminated experiments?
+    Note over A: loads them into its cache, so the API answers<br/>finished experiments without the database (B5)
+```
+
+## Capacity
+
+Measured with [the load test](loadtest/README.md) on the group VM
+(2026-11-05), experiments with 2 sensors at 1 sample/s:
+
+| | Limit | At the limit |
+|---|---|---|
+| Consumers | **450 experiments at once** (~1,000 events/s); at 500 notifications come late | notification p99 0.9 s, VM CPU 94 % |
+| HTTP API | **~10,400 req/s** on finished experiments, all answers correct | p99 28 ms, 0.5 cores |
+| The requirement | 100 experiments: ~40 % of the VM's CPU, ~4.5× headroom | notification p99 0.4 s |
+
+The test producer ran on the VM as well and took 0.27 cores at 450
+experiments; without it (as in the demo) the estimate is 500–550 experiments.
+
+## Bottlenecks
+
+In the order the load test hit them. Signals refer to the Grafana dashboard
+(:3010) unless noted.
+
+| | Bottleneck | Limit | Signal | Ways to raise it |
+|---|---|---|---|---|
+| **B1** | **VM CPU**: 2 vCPUs for everything | The first limit: at ~1,000 events/s the VM is at 100 %. Each event costs ~1.4 ms CPU (consumers 1.1 ms, Postgres 0.3 ms). | Kafka lag grows, notifications get late; CPU per container | Bigger or compute-optimized instance; cheaper events (B2, B3) |
+| **B2** | **Consumers**: Python, one process per partition, one message at a time | 1.1 ms CPU per event, including the decode and a database round trip per measurement. Processing time p99 75–94 ms under load. At most 16 run in parallel (B4). | `consumers` CPU; Kafka lag (per partition in Prometheus) | Batch the INSERTs per poll; a compiled consumer; spread over more VMs (only 16 partitions) |
+| **B3** | **Postgres**: a commit per INSERT, single instance on the VM disk | 0.3 ms CPU per event; under load sessions wait for WAL writes (`WALWrite`, `WALSync`). ~40 KB per 30-s experiment (2 sensors). | `mypg` CPU; wait events in `pg_stat_activity` (psql) | Commit per batch (`COPY` or multi-row INSERT); own DB host; `synchronous_commit=off` would trade durability for speed |
+| **B4** | **Kafka partitions**: 16, set by the course | At most 16 consumers work in parallel; one experiment is always handled by one consumer. The cluster is shared; its latency is part of the notification latency (end to end p50 0.17 s). | Kafka lag (per partition in Prometheus) | Not ours to change; the per-partition work must get cheaper (B2) |
+| **B5** | **HTTP API** | ~10,400 req/s on the VM, 0.055 ms CPU per request: 1,000 req/s cost as much CPU as ~20 experiments. The cache holds the 8,000 most recently terminated experiments; running or older experiments go to Postgres through 20 connections. A request may spend 5 s on the database (`DB_TIMEOUT`), then it gets a 500. Fixed: it stopped answering at ~1,000 client connections (Docker's limit of 1,024 open files). | `api` CPU; response times in the course Grafana | More threads or a second instance; it's far from being the limit |
+| **B6** | **Notifications service** (course) | 15 threads per consumer (240 in total), 4 s timeout, 2 retries. ~0.1 s per request, never a limit in the tests. If the service gets slow, notifications queue in the consumers. | `notifications_pending`, `notification_latency_seconds` per consumer | More threads (`NOTIFICATIONS_MAX_WORKERS`) |
+| **B7** | **CPU credits** (t3a) | Free baseline 0.4 cores (20 % per vCPU); 100 experiments use ~0.7 cores. Saved credits (at most 576, a day's worth) cover ~30 h of that. Then: unlimited mode $0.05 per vCPU-hour, standard mode throttled to 0.4 cores, which is less than 100 experiments need (estimate ~90). | `cpu_credits` in the cost panels; CloudWatch `CPUCreditBalance` | Unlimited mode (the default) or a non-burstable instance |
+| **B8** | **Disk**: 19 GB | 83 % used (3.3 GB free, 2026-11-05). Postgres ~40 KB per experiment: room for ~80,000 more. Prometheus keeps at most 1 GB. | node-exporter disk usage | Delete old data or a bigger volume |
+
+Not a bottleneck: memory. At the CPU limit the stack used ~1.1 GB of the 4 GB.
+
+---
+
 # Learning Objectives
 
 - Cloud Systems

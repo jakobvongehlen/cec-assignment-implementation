@@ -17,3 +17,4 @@ learning/
 venv/
 .vscode/
 group11/
+loadtest/out/

@@ -1,5 +1,27 @@
-# Demo stack: database, consumers (incl. notifier) with autoscaler, REST API and monitoring.
+# Demo stack: database, 16 consumers (incl. notifier), REST API and monitoring.
 # Credentials (Kafka certs + notification token) are expected in ./auth.
+# Settings shared by the consumers below
+x-consumer: &consumer
+  build: ./src/consumer
+  image: cec-consumer
+  # demo data is produced to the shared `experiment` topic
+  command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
+  environment:
+    # the course service; for tests on group11 a local one, see src/consumer/README.md
+    NOTIFICATIONS_HOST: ${NOTIFICATIONS_HOST:-https://notifications.cec.dlandau.nl}
+    # Kafka static membership: each consumer joins with its hostname, so a
+    # restarted consumer gets its own partition back instead of a rebalance
+    STATIC_MEMBERSHIP: "true"
+  volumes:
+    - ./auth:/usr/src/app/auth:ro
+    - ./logs:/usr/src/app/logs
+  depends_on:
+    mypg:
+      condition: service_healthy
+  # time to commit when stopped
+  stop_grace_period: 30s
+  restart: unless-stopped
+
 services:
   mypg:
     image: postgres:16
@@ -17,37 +39,25 @@ services:
       retries: 15
     restart: unless-stopped
 
-  # One service with any number of containers; the autoscaler adds and removes
-  # them. They share the work through the Kafka consumer group and the experiment
-  # state in Postgres, see src/consumer/single_consumer.py.
-  consumer:
-    build: ./src/consumer
-    # demo data is produced to the shared `experiment` topic
-    command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
-    environment:
-      NOTIFICATIONS_HOST: https://notifications.cec.dlandau.nl
-    volumes:
-      - ./auth:/usr/src/app/auth:ro
-      - ./logs:/usr/src/app/logs
-    depends_on:
-      mypg:
-        condition: service_healthy
-    # time to commit and leave the consumer group when stopped
-    stop_grace_period: 30s
-    restart: unless-stopped
-
-  # Scales `consumer` on Kafka lag and consumer load, see src/autoscaler/autoscaler.py
-  autoscaler:
-    build: ./src/autoscaler
-    environment:
-      MIN_CONSUMERS: ${MIN_CONSUMERS:-1}
-      MAX_CONSUMERS: ${MAX_CONSUMERS:-6}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      - prometheus
-      - consumer
-    restart: unless-stopped
+  # 16 consumers, one per partition of the topic, see src/consumer/README.md.
+  # They share the work through the Kafka consumer group and the experiment state
+  # in Postgres. All of them run the same image (cec-consumer).
+  consumer_1: {<<: *consumer, hostname: consumer-1}
+  consumer_2: {<<: *consumer, hostname: consumer-2}
+  consumer_3: {<<: *consumer, hostname: consumer-3}
+  consumer_4: {<<: *consumer, hostname: consumer-4}
+  consumer_5: {<<: *consumer, hostname: consumer-5}
+  consumer_6: {<<: *consumer, hostname: consumer-6}
+  consumer_7: {<<: *consumer, hostname: consumer-7}
+  consumer_8: {<<: *consumer, hostname: consumer-8}
+  consumer_9: {<<: *consumer, hostname: consumer-9}
+  consumer_10: {<<: *consumer, hostname: consumer-10}
+  consumer_11: {<<: *consumer, hostname: consumer-11}
+  consumer_12: {<<: *consumer, hostname: consumer-12}
+  consumer_13: {<<: *consumer, hostname: consumer-13}
+  consumer_14: {<<: *consumer, hostname: consumer-14}
+  consumer_15: {<<: *consumer, hostname: consumer-15}
+  consumer_16: {<<: *consumer, hostname: consumer-16}
 
   # API_IMPL=rust (the default, set in .env) deploys src/http-api-rust; API_IMPL= (empty) deploys the Python API in src/http-api
   api:
@@ -57,6 +67,10 @@ services:
       # one uvicorn worker (Python) or thread (Rust) per core; total DB connections = WORKERS * POOL_SIZE
       WORKERS: ${API_WORKERS:-2}
       POOL_SIZE: ${API_POOL_SIZE:-10}
+    # one file per client connection; Docker's default of 1,024 ran out at
+    # ~1,000 connections in the load test (loadtest/README.md)
+    ulimits:
+      nofile: {soft: 65536, hard: 65536}
     ports:
       - "3003:3003"
     depends_on:
@@ -69,8 +83,6 @@ services:
   # The course Prometheus federates the node_* metrics from <vm-ip>:3008
   prometheus:
     image: prom/prometheus:v2.55.1
-    # root, to read the docker socket that is used to find the consumer containers
-    user: root
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -81,7 +93,6 @@ services:
       - "3008:9090"
     volumes:
       - ./monitoring/prometheus:/etc/prometheus:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - prometheus-data:/prometheus
     extra_hosts:
       - host.docker.internal:host-gateway

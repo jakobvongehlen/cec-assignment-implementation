@@ -127,6 +127,16 @@ We run our own local notification service container on the `cec-net` network and
    docker logs -f notifications-service
    ```
 
+**With the whole compose stack**: the course notifications service rejects measurements from our own producer runs (`400: Cipher text not encrypted with provided nonce and server key`), so a test on `group11` needs the local service, started with the producer's key (`SECRET_KEY` in `.env`):
+
+```bash
+CONSUMER_TOPIC=group11 NOTIFICATIONS_HOST=http://notifications-service:3000 docker compose up -d --build
+docker run -d --name notifications-service --network cec-assignment-implementation_default \
+  dclandau/cec-notifications-service --secret-key "$(grep -oP '^SECRET_KEY="\K[^"]+' .env)" --external-ip localhost
+```
+
+Afterwards, `docker rm -f notifications-service` and `docker compose up -d` without the two variables go back to the demo setup.
+
 #### Mode 2: Live Evaluation / Demo (Diogo's Deployed Notification Service)
 Diogo produces messages to the shared `experiments` topic, and our consumer forwards notifications directly to Diogo's cloud notification service:
 
@@ -145,9 +155,9 @@ Diogo produces messages to the shared `experiments` topic, and our consumer forw
 
 ### Scaling and Consistency
 
-Any number of consumers can run as the `consumer` service in [compose.yml](../../compose.yml); the [autoscaler](../autoscaler/README.md) adds and removes them. They share the topic's partitions through the Kafka consumer group. The producer keys every event by experiment id, so all events of an experiment are in one partition and are processed by one consumer at a time.
+[compose.yml](../../compose.yml) runs 16 consumers, `consumer_1` to `consumer_16`, one per partition of the topic. They share the partitions through the Kafka consumer group. The producer keys every event by experiment id, so all events of an experiment are in one partition and are processed by one consumer at a time.
 
-When a partition moves to another consumer (scaling, crash or restart), the new owner has to continue where the old one stopped, without losing or repeating anything:
+Normally every consumer keeps its partition. A partition only moves when its consumer is gone for longer than the 6 s session timeout (a crash that doesn't recover, the container stopped), and at startup, while the 16 consumers join the group one after another. Then the new owner has to continue where the old one stopped, without losing or repeating anything:
 
 1. **Experiment state is in Postgres.** The `experiments` table holds the configuration, phase, the out-of-range flag of the last measurement and `last_offset`, the Kafka offset of the last event that changed the experiment. The row is only written on a change (configuration, phase, the out-of-range flag flipping), not for every measurement. A consumer that sees an experiment it doesn't know loads it from there.
 2. **Offsets are only committed up to what is safe.** Readings of a measurement that is still missing sensors only live in memory. Auto-commit is off; every second, and before giving up a partition, the consumer commits the offset of the first reading of its oldest incomplete measurement. The next owner reads those readings again and completes the measurement.
@@ -156,17 +166,17 @@ When a partition moves to another consumer (scaling, crash or restart), the new 
    - Readings are stored per sensor, so a repeated reading can't be counted twice in an average.
    - Measurements are inserted with `ON CONFLICT DO NOTHING`; when one flips the flag, together with the new experiment state in one statement.
    - Notifications are sent before that write. A crash in between sends one again, and the notifications service ignores duplicates.
-4. **Rebalances are short.**
+4. **Partitions rarely move.**
+   - Static membership: each consumer joins the group with its hostname (`consumer-1` ...) as `group.instance.id`. A consumer that restarts within the 6 s session timeout gets its own partition back, without a rebalance.
    - Cooperative-sticky assignment only moves the partitions that have to move.
-   - A stopped consumer (`SIGTERM`) finishes its message, commits and leaves the group.
-   - A crashed consumer's partitions move after the 6 s session timeout, the broker's minimum.
+   - A stopped consumer (`SIGTERM`) finishes its message and commits. Because of static membership it doesn't leave the group; its partition moves after the 6 s session timeout if it doesn't come back.
 5. **A failed write stops the consumer.** If a DB write fails (after one reconnect), the consumer exits without committing and its container restarts. Whoever owns the partitions next reads the message again, so a measurement is never half stored.
 6. **After downtime, the backlog is skipped.** If all consumers were down while the producer kept going, the group's committed offsets are hours behind. Replaying that would send every notification in it far too late. So each commit stores its time in the commit metadata (refreshed every 5 s, also when the offset didn't move), and a consumer that gets a partition checks it (`start_offsets`):
-   - Committed less than 15 s ago: a running consumer is handing the partition over (scaling, crash). Continue at the committed offset, nothing is lost.
+   - Committed less than 15 s ago: a running consumer is handing the partition over (crash, restart). Continue at the committed offset, nothing is lost.
    - Older, or without a time (committed by an older version): the group was down. Start at the first message of the last `STARTUP_MAX_AGE_SECONDS` (default 5 s). The skipped messages are counted as `too_old_at_start`. Experiments configured in the skipped part are unknown and their events skipped (`unknown_experiment`).
 
    The consumer group is `temperature-observability-<topic>`, one per topic, so consumers testing on `group11` never share a group (and its rebalances and offsets) with those reading `experiment`.
 
 Notifications follow the same rules as the producer uses to decide which measurements are notified: `Stabilized` for every measurement that comes back into the range during stabilization, `OutOfRange` for every measurement that leaves it while the experiment runs. The out-of-range flag resets at the start of each phase.
 
-**Metrics** for this are in the Grafana dashboard: consumers, busy share per consumer, and skipped messages by reason (`already_processed` are replays after a partition moved).
+**Logs** show this: each consumer logs the partitions it gets and gives up (`Assigned partitions ...`, `Revoked partitions ...`) and a warning when it skips a backlog.

@@ -1,0 +1,36 @@
+# Extra overlay for running the load test on the group VM, see README.md
+# (loadtest/run-vm.sh). The VM disk is too full to build the consumer image,
+# so the consumers use the image that is there and get the current code mounted
+# in; its packages match requirements.txt. Logs are capped for the same reason.
+
+x-logs: &logs
+  driver: json-file
+  options: {max-size: "20m", max-file: "2"}
+
+x-vm-consumer: &vm-consumer
+  image: ${VM_CONSUMER_IMAGE:-cec-assignment-implementation-consumer:latest}
+  volumes:
+    - ./src/consumer/single_consumer.py:/usr/src/app/single_consumer.py:ro
+    - ./src/consumer/notifier.py:/usr/src/app/notifier.py:ro
+  logging: *logs
+
+services:
+  consumer_1: *vm-consumer
+  consumer_2: *vm-consumer
+  consumer_3: *vm-consumer
+  consumer_4: *vm-consumer
+  consumer_5: *vm-consumer
+  consumer_6: *vm-consumer
+  consumer_7: *vm-consumer
+  consumer_8: *vm-consumer
+  consumer_9: *vm-consumer
+  consumer_10: *vm-consumer
+  consumer_11: *vm-consumer
+  consumer_12: *vm-consumer
+  consumer_13: *vm-consumer
+  consumer_14: *vm-consumer
+  consumer_15: *vm-consumer
+  consumer_16: *vm-consumer
+  api: {logging: *logs}
+  notifications-service: {logging: *logs}
+  experiment-producer: {logging: *logs}

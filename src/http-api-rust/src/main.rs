@@ -14,7 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use bytes::Bytes;
-use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod, Runtime};
 use serde_json::{json, Value};
 use tokio_postgres::NoTls;
 use tracing::{error, info};
@@ -35,6 +35,8 @@ const EXPERIMENTS_SQL: &str = "SELECT experiment_id, timestamp, out_of_range, \
 
 // experiments loaded per query
 const CACHE_LOAD_BATCH: usize = 100;
+// longest one refresh of the cache may take
+const REFRESH_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// All measurements of one terminated experiment. Terminated experiments never
 /// receive new measurements, so any time range is answered from these.
@@ -55,6 +57,8 @@ type Cache = RwLock<HashMap<String, Arc<Entry>>>;
 struct AppState {
     pool: Pool,
     cache: Cache,
+    /// longest a request may spend on the database
+    db_timeout: Duration,
 }
 
 fn env_or<T: FromStr>(name: &str, default: T) -> T {
@@ -101,9 +105,22 @@ async fn serve(workers: usize) {
         NoTls,
         ManagerConfig { recycling_method: RecyclingMethod::Fast },
     );
-    let pool = Pool::builder(manager).max_size(pool_size).build().expect("pool");
+    // A request may spend at most DB_TIMEOUT seconds on the database (getting a
+    // connection and the query) and then fails with a 500. Without a limit,
+    // requests wait forever when the database hangs or no connection can be
+    // opened, and keep their client connection (and file) open until the
+    // service accepts no connections at all (see loadtest/README.md).
+    let db_timeout = Duration::from_secs_f64(env_or("DB_TIMEOUT", 5.0));
+    let pool = Pool::builder(manager)
+        .max_size(pool_size)
+        .runtime(Runtime::Tokio1)
+        .wait_timeout(Some(db_timeout))
+        .create_timeout(Some(db_timeout))
+        .recycle_timeout(Some(db_timeout))
+        .build()
+        .expect("pool");
 
-    let state = Arc::new(AppState { pool, cache: RwLock::new(HashMap::new()) });
+    let state = Arc::new(AppState { pool, cache: RwLock::new(HashMap::new()), db_timeout });
     let refresher = tokio::spawn(refresh_cache(
         state.clone(),
         cache_size,
@@ -215,8 +232,12 @@ async fn refresh_cache(state: Arc<AppState>, cache_size: i64, interval: Duration
     // The cache always holds the CACHE_SIZE most recently terminated experiments.
     // Comparing the whole list doesn't depend on rows arriving in timestamp order.
     loop {
-        if let Err(e) = refresh_once(&state, cache_size).await {
-            error!("cache refresh failed: {e}");
+        // filling the empty cache takes a few queries; a hung one must not stop
+        // the refreshes for good
+        match tokio::time::timeout(REFRESH_TIMEOUT, refresh_once(&state, cache_size)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => error!("cache refresh failed: {e}"),
+            Err(_) => error!("cache refresh took longer than {REFRESH_TIMEOUT:?}"),
         }
         tokio::time::sleep(interval).await;
     }
@@ -323,9 +344,10 @@ async fn temperature(
                     .await?;
                 Ok::<String, BoxError>(row.get(0))
             };
-            match result.await {
-                Ok(body) => json_response(body),
-                Err(e) => internal_error(e),
+            match tokio::time::timeout(state.db_timeout, result).await {
+                Ok(Ok(body)) => json_response(body),
+                Ok(Err(e)) => internal_error(e),
+                Err(_) => internal_error("database timeout"),
             }
         }
     }
@@ -350,9 +372,10 @@ async fn out_of_range(
                 let row = client.query_one(&statement, &[&experiment_id]).await?;
                 Ok::<String, BoxError>(row.get(0))
             };
-            match result.await {
-                Ok(body) => json_response(body),
-                Err(e) => internal_error(e),
+            match tokio::time::timeout(state.db_timeout, result).await {
+                Ok(Ok(body)) => json_response(body),
+                Ok(Err(e)) => internal_error(e),
+                Err(_) => internal_error("database timeout"),
             }
         }
     }

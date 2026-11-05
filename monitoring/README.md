@@ -1,9 +1,6 @@
 # Monitoring
 
-The monitoring does two jobs:
-
-1. **Cost overview.** The assignment requires "a monitoring component that provides an overview of the microservice's costs over time".
-2. **Input for the autoscaler.** The autoscaler (`src/autoscaler/autoscaler.py`) asks Prometheus how far behind the consumers are and adds or removes consumers based on the answer. Without Prometheus, scaling doesn't work.
+The monitoring gives an overview of the service's costs over time, as the assignment requires, the CPU each container uses and whether the consumers keep up with Kafka. Whether notifications arrive within 10 s is in the consumer logs (see below).
 
 It starts with the rest of the stack (`docker compose up -d --build`).
 
@@ -11,17 +8,16 @@ It starts with the rest of the stack (`docker compose up -d --build`).
 
 ```
  node-exporter ── VM: CPU, memory, network, disk ─┐
- cAdvisor ─────── CPU and memory per container ───┼──>  Prometheus  ──>  Grafana dashboard
- consumers ────── Kafka lag, time per message ────┘     (stores the       (:3010)
+ cAdvisor ─────── CPU per container ──────────────┼──>  Prometheus  ──>  Grafana dashboard
+ consumers ────── Kafka lag ──────────────────────┘     (stores the       (:3010)
                                                          numbers, runs
-                                                         cost.yml)    ──>  autoscaler
+                                                         cost.yml)
 ```
 
-1. **Collect.** Three sources report numbers: node-exporter for the VM, cAdvisor for each container, and the consumers for their own work (Kafka lag, time per message, notifications).
-2. **Store.** Prometheus pulls these numbers every 15 s (every 2 s from the consumers, because the autoscaler needs them quickly) and stores them.
-3. **Compute the cost.** `prometheus/rules/cost.yml` multiplies usage by AWS prices. The result is a new metric: dollars per hour.
-4. **Show.** Grafana draws the cost and the load on one dashboard.
-5. **Scale.** The autoscaler reads the consumer lag and load from Prometheus every 5 s.
+1. **Collect.** node-exporter measures the VM, cAdvisor each container, and each consumer reports how far it is behind in Kafka (lag).
+2. **Store.** Prometheus pulls these numbers every 15 s and stores them.
+3. **Compute the cost.** `prometheus/rules/cost.yml` multiplies the VM's usage by AWS prices. The result is a new metric: dollars per hour.
+4. **Show.** Grafana draws the cost, the CPU per container and the lag on one dashboard.
 
 ## Services
 
@@ -29,10 +25,10 @@ It starts with the rest of the stack (`docker compose up -d --build`).
 |---|---|---|
 | `prometheus` | `3008` | Collects and stores all metrics, computes the cost. The course Prometheus also reads the VM CPU and memory from here for the course Grafana. |
 | `node-exporter` | `9100` (host network) | VM CPU, memory, network and disk |
-| `cadvisor` | internal | CPU, memory and network per container |
+| `cadvisor` | internal | CPU per container |
 | `grafana` | `3010` | The "Temperature Observability" dashboard. Anyone can view it without logging in. Change it in `grafana/dashboard.py`, not in the UI. |
 
-Each consumer serves its metrics on `:8000/metrics`. Prometheus finds the consumer containers on its own through the Docker socket, so it keeps working when the autoscaler adds or removes consumers.
+Prometheus scrapes the consumers' own metrics from `consumer_1:8000` to `consumer_16:8000`. The dashboard only shows the Kafka lag; the others (time per message, notifications, skipped messages) can be queried in Prometheus on `:3008`.
 
 ## The cost estimate
 
@@ -52,26 +48,31 @@ The CPU credits part needs one extra sentence. A t3a VM may use 20% of each vCPU
 
 The metric is `cec:cost_usd_per_hour`, one series per part. The prices are at the top of `cost.yml` (AWS on-demand prices, checked October 2026). Update them if the VM type changes.
 
-**Cost per container (showback).** This is an extra metric, `cec:container:cost_usd_per_hour`. It divides the instance price among the containers by how much CPU and memory each one uses, to show where the money goes. AWS doesn't bill per container, so this is only an attribution. To weigh CPU against memory, it uses the ratio of AWS Fargate's vCPU price to its GiB price. Whatever no container uses (idle capacity, the OS, Docker) is `cec:unused_cost_usd_per_hour`.
-
 ## The dashboard
 
 | Row | Shows |
 |---|---|
-| Estimated cost | cost right now, cost over the selected time range, projected cost per month, cost per part and per container |
-| Where is the bottleneck? | CPU and memory per container, Kafka lag, messages consumed, consumer time per message, VM CPU, memory and network |
-| Scaling | number of consumers, how busy each one is, skipped messages |
-| Notifications | notification latency (must stay under 10 s), notifications sent, waiting or failed |
+| Estimated cost | projected cost per month, cost per part over time |
+| Load | CPU per container (the 16 consumers added up as `consumers`) and the VM's 2 vCPUs; Kafka consumer lag, the messages the consumers have not read yet |
+
+## Notifications within 10 s: the logs
+
+Each consumer logs every notification with its latency, and a summary when it stops:
+
+```
+=== Notification SLA Metrics === Sent: ... | ... | Max: ...s | SLA Violations (>=10s): 0
+```
+
+`scripts/aggregate_consumer_sla.sh` stops the 16 consumers and adds up their summaries. The notifications service itself also logs the latency of each notification (`docker logs notifications-service` for a local one).
 
 ## Finding the bottleneck
 
 | Component | Look for |
 |---|---|
-| Consumer | CPU near 1.0 vCPU in *CPU per container*. A consumer is single-threaded Python, so it can't use more than one core. Growing Kafka lag means more consumers are needed (at most one per partition). |
-| Postgres | *DB insert* takes most of the *Consumer time per message*, or `mypg` CPU is high. Each measurement is one INSERT. |
-| Notifier | *Notifications waiting in the thread pool* grows, or the *Request time to notifications service* rises. The pool size is `NOTIFICATIONS_MAX_WORKERS`. |
-| API | `api` CPU in *CPU per container*. Request rate and response times are in the course Grafana (from the HTTP load generator). |
-| VM | *VM CPU* above the 20% line. From then on every hour costs CPU credits. |
+| Consumers | Growing *Kafka consumer lag*: the consumers can't keep up, and notifications get later. Then check `consumers` CPU in *CPU per container*. A consumer is single-threaded Python, so 16 consumers can use at most the VM's 2 vCPUs. |
+| Postgres | `mypg` CPU. Each measurement is one INSERT. |
+| API | `api` CPU. Request rate and response times are in the course Grafana (from the HTTP load generator). |
+| VM | Total CPU near the 2 vCPUs. Above 20% per vCPU every hour costs CPU credits, visible as `cpu_credits` in the cost. |
 
 ---
 
@@ -96,5 +97,4 @@ That is about 1% of the VM's CPU and 5% of its memory. If the VM gets tight duri
 ## Appendix: setup notes
 
 - **cAdvisor needs v0.57 or newer.** Docker 29 stores images in containerd, and older versions can't read that.
-- **Prometheus runs as root** so it can read the Docker socket to find the consumers.
 - **node-exporter uses the host network and PID namespace.** Otherwise it would measure its own container instead of the VM. Port 9100 is closed in the VM's security group, so it isn't public.

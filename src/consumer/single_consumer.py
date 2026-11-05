@@ -33,6 +33,7 @@ from confluent_kafka import Consumer, KafkaException, TopicPartition
 import psycopg2
 import signal
 import os
+import socket
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from notifier import default_notifier
@@ -91,7 +92,6 @@ CONSUMER_LAG = Gauge(
 )
 ACTIVE_EXPERIMENTS = Gauge("consumer_active_experiments", "Experiments this consumer is tracking")
 ASSIGNED_PARTITIONS = Gauge("consumer_assigned_partitions", "Partitions assigned to this consumer")
-TOPIC_PARTITIONS = Gauge("consumer_topic_partitions", "Partitions of the topic, the most consumers that can be busy")
 REBALANCES = Counter("consumer_rebalances_total", "Partition assignment changes", ["change"])
 
 # Kept in sync with db_queries.sql, created here as well because the database
@@ -503,7 +503,14 @@ def start_offsets(consumer, topic, partitions):
 @click.command()
 @click.argument('topic')
 def consume(topic: str):
+    static_id = {}
+    if os.environ.get("STATIC_MEMBERSHIP", "").lower() == "true":
+        # Kafka static membership: a consumer that rejoins with the same id within
+        # the session timeout (a restart) gets its partitions back without a rebalance.
+        # The id must be unique in the group, compose gives every consumer its own hostname.
+        static_id = {'group.instance.id': socket.gethostname()}
     consumer = Consumer({
+        **static_id,
         'bootstrap.servers': 'kafka.cec.dlandau.nl:19092,kafka.cec.dlandau.nl:29092,kafka.cec.dlandau.nl:39092',
         # one group per topic: test consumers on our own topic must not share a group
         # (and its rebalances) with the consumers of the demo topic
@@ -524,7 +531,7 @@ def consume(topic: str):
         'ssl.keystore.location': './auth/kafka.keystore.pkcs12',
         'ssl.keystore.password': 'cc2023',
         'ssl.endpoint.identification.algorithm': 'none',
-        # lag every 2 s, the autoscaler reacts to it
+        # lag for the dashboard
         'statistics.interval.ms': 2000,
         'stats_cb': report_lag,
         'on_commit': report_commit,
@@ -562,7 +569,6 @@ def consume(topic: str):
         logger.warning("Lost partitions %s", sorted(lost))
 
     consumer.subscribe([topic], on_assign=on_assign, on_revoke=on_revoke, on_lost=on_lost)
-    TOPIC_PARTITIONS.set(len(consumer.list_topics(topic, timeout=10).topics[topic].partitions))
 
     ACTIVE_EXPERIMENTS.set_function(lambda: len(state.experiments))
     start_http_server(METRICS_PORT)
