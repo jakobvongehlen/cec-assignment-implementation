@@ -1,10 +1,6 @@
-# Load test overlay for ../compose.yml, see README.md. Use it through run.sh:
-#   docker compose -f compose.yml -f loadtest/compose.yml ...
-# Paths are relative to the repository root (the directory of compose.yml).
-#
-# The system under test (consumers, API, Postgres, monitoring) is pinned to
-# SUT_CPUS, 2 cores like the group VM (t3a.medium). The load tools and the
-# notifications service run on TOOL_CPUS, so they don't take CPU from it.
+# Load test overlay for ../compose.yml, used by run.sh. Paths are relative to the
+# repository root. The system under test runs on SUT_CPUS (2 cores like the VM),
+# the load tools and the notifications service on TOOL_CPUS.
 
 x-sut: &sut
   cpuset: ${SUT_CPUS:-0,1}
@@ -63,9 +59,8 @@ services:
     command: ["--secret-key", "${SECRET_KEY}", "--external-ip", "localhost"]
     restart: unless-stopped
 
-  # Produces the experiments of loadtest/out/<run>/producer-config.json to the
-  # load test topic, and the document of every finished experiment to the same
-  # topic (our client can't write to another one).
+  # produces the experiments of loadtest/out/<run>/producer-config.json, and their
+  # documents to the same topic (our client can't write to another one)
   experiment-producer:
     <<: *tool
     profiles: [loadtest]

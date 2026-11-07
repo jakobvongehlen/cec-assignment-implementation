@@ -1,6 +1,4 @@
-//! Rust port of `src/http-api/api.py`: same endpoints, same SQL, same response
-//! bodies, same cache of terminated experiments. It runs as one process with a
-//! multithreaded runtime, so all threads share one cache and one connection pool.
+//! Port of `src/http-api/api.py` with the same endpoints, SQL and responses.
 
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -38,15 +36,13 @@ const CACHE_LOAD_BATCH: usize = 100;
 // longest one refresh of the cache may take
 const REFRESH_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// All measurements of one terminated experiment. Terminated experiments never
-/// receive new measurements, so any time range is answered from these.
+/// All measurements of one terminated experiment, which can't change anymore.
 struct Entry {
     /// sorted timestamps
     timestamps: Vec<f64>,
     /// all rows as one comma separated JSON string
     rows_json: Bytes,
-    /// where each row starts in `rows_json`, plus one start past the end, as if
-    /// every row was followed by a comma
+    /// start of each row in `rows_json` and one past the end, counting a comma after every row
     starts: Vec<u32>,
     /// the finished out-of-range response
     out_of_range: Bytes,
@@ -89,8 +85,7 @@ fn main() {
 async fn serve(workers: usize) {
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://postgres:cec@mypg/temp_db".to_owned());
-    // connections per worker thread, so the total matches the Python version's
-    // WORKERS * POOL_SIZE; all threads share one pool
+    // POOL_SIZE per worker thread, as in the Python version; all threads share one pool
     let pool_size: usize = workers * env_or::<usize>("POOL_SIZE", 10);
     // cached experiments, the most recently terminated ones are kept
     let cache_size: i64 = env_or("CACHE_SIZE", 8000);
@@ -105,11 +100,8 @@ async fn serve(workers: usize) {
         NoTls,
         ManagerConfig { recycling_method: RecyclingMethod::Fast },
     );
-    // A request may spend at most DB_TIMEOUT seconds on the database (getting a
-    // connection and the query) and then fails with a 500. Without a limit,
-    // requests wait forever when the database hangs or no connection can be
-    // opened, and keep their client connection (and file) open until the
-    // service accepts no connections at all (see loadtest/README.md).
+    // Without a limit, requests wait forever when Postgres hangs and keep their
+    // client connections open until no new ones are accepted.
     let db_timeout = Duration::from_secs_f64(env_or("DB_TIMEOUT", 5.0));
     let pool = Pool::builder(manager)
         .max_size(pool_size)
@@ -221,7 +213,7 @@ async fn refresh_once(state: &AppState, cache_size: i64) -> Result<(), BoxError>
         cache.retain(|experiment_id, _| newest.contains(experiment_id));
         newest.into_iter().filter(|id| !cache.contains_key(id)).collect()
     };
-    // in chunks, so filling an empty cache at startup doesn't fetch everything at once
+    // in chunks, so an empty cache isn't filled in one query
     for chunk in missing.chunks(CACHE_LOAD_BATCH) {
         load_experiments(state, chunk).await?;
     }
@@ -229,11 +221,9 @@ async fn refresh_once(state: &AppState, cache_size: i64) -> Result<(), BoxError>
 }
 
 async fn refresh_cache(state: Arc<AppState>, cache_size: i64, interval: Duration) {
-    // The cache always holds the CACHE_SIZE most recently terminated experiments.
-    // Comparing the whole list doesn't depend on rows arriving in timestamp order.
+    // keeps the CACHE_SIZE most recently terminated experiments
     loop {
-        // filling the empty cache takes a few queries; a hung one must not stop
-        // the refreshes for good
+        // a hung query must not stop the refreshes for good
         match tokio::time::timeout(REFRESH_TIMEOUT, refresh_once(&state, cache_size)).await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => error!("cache refresh failed: {e}"),
@@ -257,8 +247,7 @@ fn internal_error(e: impl std::fmt::Display) -> Response {
         .into_response()
 }
 
-/// Query parameter parsing with FastAPI's 422 error bodies. As in Starlette,
-/// the last value of a repeated parameter wins.
+/// Query parameters with FastAPI's 422 error bodies; a repeated parameter's last value wins.
 struct Params {
     values: Vec<(String, String)>,
     errors: Vec<Value>,
@@ -321,8 +310,8 @@ async fn temperature(
     let entry = state.cache.read().unwrap().get(&experiment_id).cloned();
     match entry {
         Some(entry) => {
-            // inclusive on both ends, like the SQL query. Same comparisons as
-            // Python's bisect_left/bisect_right, so NaN bounds behave the same.
+            // inclusive on both ends, like the SQL query; `!(end_time < t)` matches
+            // Python's bisect_right for NaN bounds
             let lo = entry.timestamps.partition_point(|&t| t < start_time);
             let hi = entry.timestamps.partition_point(|&t| !(end_time < t));
             if lo >= hi {

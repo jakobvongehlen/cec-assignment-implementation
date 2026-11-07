@@ -2,19 +2,19 @@
 
 2 stages of 60 s, experiments of 30 s with 2 sensors at 1 sample/s, 540 experiments in total. Each stage is measured over its steady window, after the previous stage's experiments have ended.
 
-## Consumers (Kafka → Postgres → notifications)
+## Consumers
 
 | Stage | Experiments | Events/s (expected) | Max lag | Processing p99 | Notifications | Latency p50 | Latency p99 | > 10 s | Errors | OK |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 100 | 217 (200) | 6 | 48.1 ms | 874 | 0.17 s | 0.25 s | 0 | 0 | ✅ |
-| 2 | 100 | 216 (200) | 18 | 49.6 ms | 425 | 0.17 s | 0.28 s | 0 | 0 | ✅ |
+| 1 | 100 | 217 (200) | 6 | 48.1 ms | 874 | 0.17 s | 0.25 s | 0 | 0 | pass |
+| 2 | 100 | 216 (200) | 18 | 49.6 ms | 425 | 0.17 s | 0.28 s | 0 | 0 | pass |
 
 ## HTTP API (finished experiments only)
 
 | Stage | Measured (s after start) | Target req/s | Achieved req/s | RTT p50 | RTT p99 | Error share | Errors | OK |
 |---|---|---|---|---|---|---|---|---|
-| 1 | 55–215 | 500 | 105 | 564.8 ms | 10,000.0 ms | 0.00 % | – | ❌ |
-| 2 | 132–162 | 1000 | 0 | 0.0 ms | 0.0 ms | – | – | ❌ |
+| 1 | 55–215 | 500 | 105 | 564.8 ms | 10,000.0 ms | 0.00 % | – | fail |
+| 2 | 132–162 | 1000 | 0 | 0.0 ms | 0.0 ms | – | – | fail |
 
 ## CPU of the system under test (cores)
 

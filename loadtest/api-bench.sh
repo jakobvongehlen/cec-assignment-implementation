@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Throughput of the API on the machine it runs on, without the network in
-# between, see README.md. Run it on the VM next to the test stack:
+# API throughput on the VM itself, without the network. Run it next to the test stack:
 #   docker exec -i cec-loadtest-mypg-1 psql -U postgres -d temp_db -At < api-urls.sql | shuf > urls.txt
 #   ./api-bench.sh urls.txt 2000 4000 8000 0      (0 = as fast as possible)
-# Prints per rate: achieved req/s, latency p50/p99, success rate and the CPU
-# (cores) of the API container and of oha itself.
+# Prints per rate: req/s, p50/p99 latency, success rate, CPU of the API and of oha.
 set -euo pipefail
 urls=$1; shift
 api_cgroup=/sys/fs/cgroup/system.slice/docker-$(docker inspect -f '{{.Id}}' cec-loadtest-api-1).scope/cpu.stat

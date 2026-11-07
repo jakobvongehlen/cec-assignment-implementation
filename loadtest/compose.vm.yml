@@ -1,7 +1,6 @@
-# Extra overlay for running the load test on the group VM, see README.md
-# (loadtest/run-vm.sh). The VM disk is too full to build the consumer image,
-# so the consumers use the image that is there and get the current code mounted
-# in; its packages match requirements.txt. Logs are capped for the same reason.
+# Overlay for the load test on the group VM (run-vm.sh). The disk is too full to
+# build the consumer image, so the existing one runs with the current code mounted
+# in. Logs are capped for the same reason.
 
 x-logs: &logs
   driver: json-file

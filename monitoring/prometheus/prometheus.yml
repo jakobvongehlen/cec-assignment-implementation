@@ -1,6 +1,5 @@
-# Prometheus for the Temperature Observability service, published on :3008.
-# The course Prometheus federates node_cpu_seconds_total and node_memory_* from
-# <vm-ip>:3008/federate for the "Average CPU/Memory" panels in the course Grafana.
+# Published on :3008. The course Prometheus federates the VM's CPU and memory
+# from <vm-ip>:3008/federate for the course Grafana.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -24,7 +23,7 @@ scrape_configs:
         regex: ""
         action: drop
 
-  # App metrics of the 16 consumers (compose services consumer_1 ... consumer_16)
+  # the 16 consumers
   - job_name: consumer
     static_configs:
       - targets: ["consumer_1:8000", "consumer_2:8000", "consumer_3:8000", "consumer_4:8000", "consumer_5:8000", "consumer_6:8000", "consumer_7:8000", "consumer_8:8000", "consumer_9:8000", "consumer_10:8000", "consumer_11:8000", "consumer_12:8000", "consumer_13:8000", "consumer_14:8000", "consumer_15:8000", "consumer_16:8000"]

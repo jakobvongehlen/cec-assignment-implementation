@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
-"""Turns a list of load stages into the experiment-producer config and the
-rate schedule of the http-load-generator, see README.md.
+"""Turns load stages into the experiment-producer config and the request rate
+schedule of the http-load-generator.
 
-A stage is `<experiments>:<requests per second>`: that many experiments run at
-the same time while the API gets that many requests per second. Experiments are
-started one after another (every experiment-seconds / experiments seconds), so
-the number running stays constant and finished experiments, which the load
-generator queries, keep coming in.
-
-Timeline, relative to the start of the producer (t = 0):
-  0 .. warmup          stage 1 experiments only, so finished experiments exist
-                       before the load generator starts querying
-  warmup + (k-1)*S ..  stage k: its experiments and its request rate
-  warmup + k*S
-The first experiments of a stage replace those of the previous one during its
-first experiment-seconds, so a stage is steady after that (its `steady` window).
+A stage is `<experiments>:<requests per second>`. Experiments start one after
+another, so the number running stays constant and finished experiments keep
+coming in for the load generator. Stage 1 first runs alone for a warmup. A stage
+is steady once the previous stage's experiments have ended (its `steady` window).
 """
 import argparse
 import json

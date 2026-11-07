@@ -1,47 +1,22 @@
 # HTTP API (Rust)
 
-A Rust port of the Python API in [`../http-api`](../http-api). It serves the same endpoints with the same SQL, the same cache of terminated experiments and byte-identical responses, including the 422 bodies for missing or invalid parameters. See the Python README for the endpoints and how the cache works.
-
-## Choosing the implementation
-
-`compose.yml` builds this Rust API by default: the repo's `.env` sets `API_IMPL=rust`. To deploy the Python API instead, set `API_IMPL` to empty:
-
-```
-API_IMPL= docker compose up -d --build api
-```
-
-A variable set in the shell overrides `.env`, so leave it out (or set `API_IMPL=rust`) to go back to Rust. Each implementation gets its own image (`http-api` / `http-api-rust`), so switching recreates the container.
-
-## Differences to the Python version
-
-- One process with `WORKERS` threads instead of `WORKERS` processes. All threads share one cache and one connection pool of `WORKERS × POOL_SIZE` connections, so the cache is only filled once.
-- No `/docs` or `/openapi.json`, and no access log.
-- `DATABASE_URL` can be a URL or libpq's `key=value` form. TLS to Postgres is not supported.
+Port of the FastAPI version in [`../http-api`](../http-api) with the same endpoints, SQL and responses, including the 422 bodies. `compose.yml` builds it because `.env` sets `API_IMPL=rust`.
 
 ## Configuration
 
-| Variable       | Default                                   | What it does                                  |
-|----------------|-------------------------------------------|-----------------------------------------------|
-| `DATABASE_URL` | `postgresql://postgres:cec@mypg/temp_db`  | Postgres connection string                    |
-| `WORKERS`      | number of cores                           | Worker threads                                |
-| `POOL_SIZE`    | `10`                                      | DB connections per worker (total = workers × pool size) |
-| `DB_TIMEOUT`   | `5`                                       | Seconds a request may spend on the database (connection and query) before it fails with a 500 |
-| `CACHE_SIZE`   | `8000`                                    | Cached experiments, `0` turns the cache off   |
-| `CACHE_REFRESH`| `1`                                       | Seconds between checks for newly terminated experiments |
-| `PORT`         | `3003`                                    | Port to listen on                             |
+| Variable | Default | |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://postgres:cec@mypg/temp_db` | URL or libpq `key=value` form, no TLS |
+| `WORKERS` | number of cores | worker threads |
+| `POOL_SIZE` | `10` | DB connections per worker |
+| `DB_TIMEOUT` | `5` | seconds a request may spend on the database before it returns 500 |
+| `CACHE_SIZE` | `8000` | cached experiments, `0` disables the cache |
+| `CACHE_REFRESH` | `1` | seconds between cache refreshes |
+| `PORT` | `3003` | |
 
-## Running it without Docker
+## Running without Docker
 
 ```
 cargo build --release
 DATABASE_URL=postgresql://postgres:cec@localhost/temp_db ./target/release/http-api
 ```
-
-## Performance
-
-Measured locally with `oha` (64 connections, both versions with 2 workers, load generator on the same machine):
-
-| Request                  | Python      | Rust         |
-|--------------------------|-------------|--------------|
-| cached experiment        | 8,455 req/s | 35,224 req/s |
-| running experiment (DB)  | 2,693 req/s | 7,236 req/s  |

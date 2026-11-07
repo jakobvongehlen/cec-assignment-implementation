@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-"""Checks that the API survives more client connections than it may open
-files (see README.md, "the API hung"). Run on the API's machine with a raised
-limit for itself: ulimit -n 8192; python3 fd-repro.py [connections]
-
-Holds the connections open without sending anything, then sends a request that
-needs a database connection (an unknown experiment is not in the cache), and
-again after closing them."""
+"""Checks that the API still answers while more clients are connected than it may
+open files: holds idle connections, then sends a request that needs the database.
+Run on the API's machine: ulimit -n 8192; python3 fd-repro.py [connections]"""
 import socket, sys, time, urllib.request
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 1100

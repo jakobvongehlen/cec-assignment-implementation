@@ -1,16 +1,15 @@
-# Demo stack: database, 16 consumers (incl. notifier), REST API and monitoring.
-# Credentials (Kafka certs + notification token) are expected in ./auth.
-# Settings shared by the consumers below
+# Kafka certificates and the notification token are expected in ./auth.
+
+# shared by the 16 consumers
 x-consumer: &consumer
   build: ./src/consumer
   image: cec-consumer
   # demo data is produced to the shared `experiment` topic
   command: ["single_consumer.py", "${CONSUMER_TOPIC:-experiment}"]
   environment:
-    # the course service; for tests on group11 a local one, see src/consumer/README.md
+    # override for tests with a local service, see src/consumer/README.md
     NOTIFICATIONS_HOST: ${NOTIFICATIONS_HOST:-https://notifications.cec.dlandau.nl}
-    # Kafka static membership: each consumer joins with its hostname, so a
-    # restarted consumer gets its own partition back instead of a rebalance
+    # a restarted consumer gets its partition back without a rebalance
     STATIC_MEMBERSHIP: "true"
   volumes:
     - ./auth:/usr/src/app/auth:ro
@@ -39,9 +38,7 @@ services:
       retries: 15
     restart: unless-stopped
 
-  # 16 consumers, one per partition of the topic, see src/consumer/README.md.
-  # They share the work through the Kafka consumer group and the experiment state
-  # in Postgres. All of them run the same image (cec-consumer).
+  # one consumer per partition
   consumer_1: {<<: *consumer, hostname: consumer-1}
   consumer_2: {<<: *consumer, hostname: consumer-2}
   consumer_3: {<<: *consumer, hostname: consumer-3}
@@ -59,16 +56,15 @@ services:
   consumer_15: {<<: *consumer, hostname: consumer-15}
   consumer_16: {<<: *consumer, hostname: consumer-16}
 
-  # API_IMPL=rust (the default, set in .env) deploys src/http-api-rust; API_IMPL= (empty) deploys the Python API in src/http-api
+  # API_IMPL=rust (set in .env) builds src/http-api-rust, API_IMPL= the Python API in src/http-api
   api:
     build: ./src/http-api${API_IMPL:+-$API_IMPL}
     image: http-api${API_IMPL:+-$API_IMPL}
     environment:
-      # one uvicorn worker (Python) or thread (Rust) per core; total DB connections = WORKERS * POOL_SIZE
+      # DB connections = WORKERS * POOL_SIZE
       WORKERS: ${API_WORKERS:-2}
       POOL_SIZE: ${API_POOL_SIZE:-10}
-    # one file per client connection; Docker's default of 1,024 ran out at
-    # ~1,000 connections in the load test (loadtest/README.md)
+    # one file per client connection; Docker's default of 1,024 ran out in the load test
     ulimits:
       nofile: {soft: 65536, hard: 65536}
     ports:
@@ -78,7 +74,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # --- monitoring, see monitoring/README.md ---------------------------------
+  # monitoring, see monitoring/README.md
 
   # The course Prometheus federates the node_* metrics from <vm-ip>:3008
   prometheus:
@@ -130,9 +126,7 @@ services:
       - /dev/disk/:/dev/disk:ro
     restart: unless-stopped
 
-  # Cost and bottleneck dashboard on :3010. It is public, so nobody can log in:
-  # everyone is an anonymous viewer that can also use Explore. Change the
-  # dashboard in monitoring/grafana/dashboard.py instead of the UI.
+  # public dashboard on :3010; edit monitoring/grafana/dashboard.py, not the UI
   grafana:
     image: grafana/grafana:11.3.0
     environment:

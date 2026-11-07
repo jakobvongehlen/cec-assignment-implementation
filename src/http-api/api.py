@@ -48,13 +48,8 @@ EXPERIMENTS_SQL = (
 )
 
 pool = None
-# Terminated experiments never receive new measurements, so all of their rows
-# can be kept in memory and any time range is answered without the database.
-# A background task loads them as they terminate; everything else (running
-# experiments, ones not loaded yet, old evicted ones) goes to the database.
-# experiment_id -> (sorted timestamps, all rows as one comma separated JSON
-# string, where each row starts in that string, out-of-range body). Flat arrays
-# and one bytes object per experiment keep the memory per row small.
+# Terminated experiments can't change, so their rows are kept in memory:
+# experiment_id -> (sorted timestamps, rows as one JSON string, row starts, out-of-range body)
 cache = {}
 
 
@@ -79,15 +74,14 @@ async def load_experiments(experiment_ids):
 
 
 async def refresh_cache():
-    # The cache always holds the CACHE_SIZE most recently terminated experiments.
-    # Comparing the whole list doesn't depend on rows arriving in timestamp order.
+    # keeps the CACHE_SIZE most recently terminated experiments
     while True:
         try:
             newest = {row[0] for row in await pool.fetch(TERMINATED_SQL, CACHE_SIZE)}
             for experiment_id in cache.keys() - newest:
                 del cache[experiment_id]
             missing = list(newest - cache.keys())
-            # in chunks, so filling an empty cache at startup doesn't fetch everything at once
+            # in chunks, so an empty cache isn't filled in one query
             for i in range(0, len(missing), CACHE_LOAD_BATCH):
                 await load_experiments(missing[i : i + CACHE_LOAD_BATCH])
         except Exception:

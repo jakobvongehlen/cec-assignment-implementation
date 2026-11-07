@@ -1,8 +1,5 @@
-"""Generates dashboards/temperature-observability.json.
-
-Edit the panels here and run `python3 monitoring/grafana/dashboard.py`, then
-restart grafana (`docker compose restart grafana`).
-"""
+"""Generates dashboards/temperature-observability.json. Run it after editing,
+then `docker compose restart grafana`."""
 import json
 import os
 
@@ -54,7 +51,7 @@ def panel(kind, title, targets, x, w, h, unit=None, desc=None, stack=False, thre
 STAT = {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
         "colorMode": "value", "graphMode": "none", "textMode": "auto"}
 
-# --- cost -------------------------------------------------------------------
+# cost
 row("Estimated cost (AWS t3a.medium, eu-west-1)")
 panel("stat", "Projected per month", [target("sum(cec:cost_usd_per_hour) * 730", instant=True)], 0, 6, 8,
       unit="currencyUSD", decimals=2, options=STAT,
@@ -64,7 +61,7 @@ panel("timeseries", "Cost over time per component", [target("cec:cost_usd_per_ho
       desc="USD per hour. Only cpu_credits (CPU above the t3a baseline of 20% per vCPU, worst case) and egress depend on the load.")
 y += 8
 
-# --- load ---------------------------------------------------------------------
+# load
 row("Load")
 # by compose service, with consumer_1 ... consumer_16 added up as "consumers"
 panel("timeseries", "CPU per container", [

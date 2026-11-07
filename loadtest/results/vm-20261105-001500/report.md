@@ -2,27 +2,27 @@
 
 6 stages of 90 s, experiments of 30 s with 2 sensors at 1 sample/s, 1940 experiments in total. Each stage is measured over its steady window, after the previous stage's experiments have ended.
 
-## Consumers (Kafka → Postgres → notifications)
+## Consumers
 
 | Stage | Experiments | Events/s (expected) | Max lag | Processing p99 | Notifications | Latency p50 | Latency p99 | > 10 s | Errors | OK |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 100 | 217 (200) | 29 | 48.8 ms | 1,286 | 0.17 s | 0.25 s | 0 | 0 | ✅ |
-| 2 | 100 | 216 (200) | 20 | 59.8 ms | 862 | 0.17 s | 0.33 s | 0 | 0 | ✅ |
-| 3 | 100 | 217 (200) | 1 | 51.9 ms | 845 | 0.17 s | 0.25 s | 0 | 0 | ✅ |
-| 4 | 100 | 216 (200) | 0 | 67.8 ms | 867 | 0.17 s | 0.32 s | 0 | 0 | ✅ |
-| 5 | 100 | 217 (200) | 0 | 70.1 ms | 897 | 0.17 s | 0.25 s | 0 | 0 | ✅ |
-| 6 | 100 | 216 (200) | 0 | 61.5 ms | 837 | 0.17 s | 0.40 s | 0 | 0 | ✅ |
+| 1 | 100 | 217 (200) | 29 | 48.8 ms | 1,286 | 0.17 s | 0.25 s | 0 | 0 | pass |
+| 2 | 100 | 216 (200) | 20 | 59.8 ms | 862 | 0.17 s | 0.33 s | 0 | 0 | pass |
+| 3 | 100 | 217 (200) | 1 | 51.9 ms | 845 | 0.17 s | 0.25 s | 0 | 0 | pass |
+| 4 | 100 | 216 (200) | 0 | 67.8 ms | 867 | 0.17 s | 0.32 s | 0 | 0 | pass |
+| 5 | 100 | 217 (200) | 0 | 70.1 ms | 897 | 0.17 s | 0.25 s | 0 | 0 | pass |
+| 6 | 100 | 216 (200) | 0 | 61.5 ms | 837 | 0.17 s | 0.40 s | 0 | 0 | pass |
 
 ## HTTP API (finished experiments only)
 
 | Stage | Measured (s after start) | Target req/s | Achieved req/s | RTT p50 | RTT p99 | Error share | Errors | OK |
 |---|---|---|---|---|---|---|---|---|
-| 1 | 60–135 | 250 | 255 | 88.5 ms | 808.7 ms | 0.00 % | – | ✅ |
-| 2 | 150–220 | 500 | 494 | 76.6 ms | 901.9 ms | 0.00 % | – | ✅ |
-| 3 | 235–315 | 1000 | 953 | 77.5 ms | 846.2 ms | 0.00 % | – | ✅ |
-| 4 | 330–525 | 2000 | 831 | 88.7 ms | 1,387.2 ms | 0.00 % | – | ❌ |
-| 5 | 540–630 | 3000 | 1,418 | 70.3 ms | 754.8 ms | 0.00 % | – | ❌ |
-| 6 | 522–582 | 4000 | 1,337 | 71.7 ms | 772.9 ms | 0.00 % | – | ❌ |
+| 1 | 60–135 | 250 | 255 | 88.5 ms | 808.7 ms | 0.00 % | – | pass |
+| 2 | 150–220 | 500 | 494 | 76.6 ms | 901.9 ms | 0.00 % | – | pass |
+| 3 | 235–315 | 1000 | 953 | 77.5 ms | 846.2 ms | 0.00 % | – | pass |
+| 4 | 330–525 | 2000 | 831 | 88.7 ms | 1,387.2 ms | 0.00 % | – | fail |
+| 5 | 540–630 | 3000 | 1,418 | 70.3 ms | 754.8 ms | 0.00 % | – | fail |
+| 6 | 522–582 | 4000 | 1,337 | 71.7 ms | 772.9 ms | 0.00 % | – | fail |
 
 ## CPU of the system under test (cores)
 

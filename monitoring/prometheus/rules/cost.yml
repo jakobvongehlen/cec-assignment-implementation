@@ -1,14 +1,10 @@
-# Estimated cost of the VM the service runs on, in USD per hour.
-#
-# Billed cost (cec:cost_usd_per_hour, by component) is what AWS charges for the
-# group VM: a t3a.medium (2 vCPU, 4 GiB) in eu-west-1 with a 20 GiB root volume.
-# Usage only changes the cost through T3a CPU credits and outbound traffic.
-#
-# Prices: AWS on-demand, Linux, eu-west-1, USD. Update them if the VM changes.
+# Estimated cost of the group VM (t3a.medium, eu-west-1, 20 GiB disk) in USD per
+# hour, by component. Only CPU credits and outbound traffic grow with load.
+# AWS on-demand prices; update them if the VM changes.
 groups:
   - name: cost
     rules:
-      # --- prices ------------------------------------------------------------
+      # prices
       - record: cec:price_usd:instance_hour
         expr: vector(0.0408)  # t3a.medium
       - record: cec:price_usd:public_ipv4_hour
@@ -17,15 +13,13 @@ groups:
         expr: vector(0.088)  # gp3
       - record: cec:price_usd:egress_gib
         expr: vector(0.09)  # to the internet, first 10 TB/month
-      # T3a instances run in unlimited mode by default: CPU above the baseline is
-      # paid for with surplus credits once the earned credits are used up. This
-      # ignores the credit balance, so it is the worst case for sustained load.
+      # CPU above the baseline, ignoring saved credits (worst case)
       - record: cec:price_usd:cpu_credit_vcpu_hour
         expr: vector(0.05)
       - record: cec:instance:baseline_vcpu_fraction
         expr: vector(0.2)  # t3a.medium baseline is 20% per vCPU
 
-      # --- VM usage (node_exporter) ------------------------------------------
+      # VM usage (node_exporter)
       - record: cec:node:vcpus
         expr: count(node_cpu_seconds_total{job="node", mode="idle"})
       - record: cec:node:vcpus_used
@@ -39,7 +33,7 @@ groups:
       - record: cec:node:egress_bytes_per_second
         expr: sum(rate(node_network_transmit_bytes_total{job="node", device!~"lo|veth.*|docker.*|br-.*"}[1m]))
 
-      # --- billed cost per component -----------------------------------------
+      # cost per component
       - record: cec:cost_usd_per_hour
         labels: {component: instance}
         expr: cec:price_usd:instance_hour

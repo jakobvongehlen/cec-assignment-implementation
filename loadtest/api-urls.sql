@@ -1,6 +1,5 @@
--- URLs for loadtest/api-bench.sh: the API's two endpoints for the most recently
--- terminated experiments (the ones in its cache), half out-of-range, half a
--- random time range, like the HTTP load generator queries.
+-- URLs for api-bench.sh: both endpoints for the most recently terminated
+-- (cached) experiments, like the HTTP load generator queries.
 WITH recent AS (
     SELECT experiment_id FROM experiments_terminated ORDER BY terminated_at DESC LIMIT 2000
 ), ranges AS (

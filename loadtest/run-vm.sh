@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
-# The load test of run.sh against the group VM, see loadtest/README.md.
-#
-# The system under test, the producer and the notifications service run on the
-# VM (the producer has to be close to Kafka); the HTTP load generator runs here
-# and queries the VM's API over the internet, like the course's does.
+# The load test of run.sh against the group VM. The system under test, the
+# producer and the notifications service run on the VM; the HTTP load generator
+# runs here and queries the API over the internet.
 #
 # Usage: loadtest/run-vm.sh [stages]
 # Settings (environment): VM, VM_KEY, VM_DIR, STAGE_SECONDS, EXPERIMENT_SECONDS,
 #   SENSORS, LOADTEST_DOCUMENT_WAIT, LOADTEST_MAX_IN_FLIGHT
-#
-# Other stacks on the VM that read the load test topic (group11) must be
-# stopped first, they would take its messages and CPU. The test stack (compose
-# project cec-loadtest in ~/cec-loadtest) keeps running afterwards for a look
-# at it; the last lines printed say how to remove it.
+# Stop other stacks on the VM that read group11 first. The test stack
+# (~/cec-loadtest) keeps running afterwards; the output says how to remove it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

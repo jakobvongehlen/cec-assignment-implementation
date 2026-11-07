@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
-"""Summarizes a load test run from Prometheus, one row per stage, see README.md.
+"""Summarizes a load test run from Prometheus, one row per stage.
 
 Usage: report.py <run-dir> [--prometheus URL] [--http-prometheus URL]
-
---http-prometheus is the Prometheus that scrapes the load generator, when it
-runs somewhere else than the system under test (run-vm.sh).
-
-Reads <run-dir>/plan.json and <run-dir>/t0 (start of the producer, epoch
-seconds) and writes <run-dir>/report.md and <run-dir>/results.json. Each stage is
-measured over its steady window, after the experiments of the previous stage
-have finished.
+--http-prometheus scrapes the load generator if it runs elsewhere (run-vm.sh).
+Reads plan.json and t0 from <run-dir>, writes report.md and results.json there.
 """
 import argparse
 import json
@@ -65,12 +59,8 @@ class Prometheus:
 
 
 def http_window(prom, plan, stage, t0):
-    """When the load generator really sent the stage's rate.
-
-    Its stages drift from the plan (they start with the first finished
-    experiment, and a stage the API can't keep up with takes longer), so the
-    window comes from its target rate gauge, which it sets for every batch it
-    sends. Falls back to the plan if the rate is not unique to the stage."""
+    """When the load generator actually sent the stage's rate, from its target rate
+    gauge, since its stages drift from the plan. Falls back to the plan."""
     planned = (t0 + stage["steady_start"], t0 + stage["end"])
     if [s["rate"] for s in plan["stages"]].count(stage["rate"]) != 1:
         return planned
@@ -175,7 +165,7 @@ def render(plan, results, run_dir):
         f"{plan['experiments_total']} experiments in total. Each stage is measured over its steady "
         "window, after the previous stage's experiments have ended.",
         "",
-        "## Consumers (Kafka → Postgres → notifications)",
+        "## Consumers",
         "",
         "| Stage | Experiments | Events/s (expected) | Max lag | Processing p99 | Notifications | Latency p50 | Latency p99 | > 10 s | Errors | OK |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
@@ -186,7 +176,7 @@ def render(plan, results, run_dir):
             f"| {m['stage']} | {m['experiments']} | {fmt(m['events_per_s'])} ({expected}) | {fmt(m['lag_max'])} "
             f"| {fmt(m['processing_p99_ms'], 1, ' ms')} | {fmt(m['notifications'])} | {fmt(m['latency_p50'], 2, ' s')} "
             f"| {fmt(m['latency_p99'], 2, ' s')} | {fmt(m['late'])} | {fmt(m['notification_errors'])} "
-            f"| {'✅' if m['consumer_ok'] else '❌'} |")
+            f"| {'pass' if m['consumer_ok'] else 'fail'} |")
     lines += [
         "",
         "## HTTP API (finished experiments only)",
@@ -200,7 +190,7 @@ def render(plan, results, run_dir):
         lines.append(
             f"| {m['stage']} | {m['http_window_offset']:.0f}–{m['http_window_offset'] + m['http_window_seconds']:.0f} "
             f"| {m['target_rate']} | {fmt(m['achieved_rate'])} | {fmt(m['rtt_p50_ms'], 1, ' ms')} "
-            f"| {fmt(m['rtt_p99_ms'], 1, ' ms')} | {share} | {errors} | {'✅' if m['api_ok'] else '❌'} |")
+            f"| {fmt(m['rtt_p99_ms'], 1, ' ms')} | {share} | {errors} | {'pass' if m['api_ok'] else 'fail'} |")
     lines += [
         "",
         "## CPU of the system under test (cores)",
@@ -237,7 +227,7 @@ def render(plan, results, run_dir):
         expected = m["experiments"] * plan["sensors"]
         if m["events_per_s"] < 0.8 * expected and (m["lag_max"] or 0) < expected:
             lines.append(
-                f"\n⚠️ Stage {m['stage']}: the consumers got {m['events_per_s']:,.0f} of {expected} events/s without "
+                f"\nWarning: stage {m['stage']}: the consumers got {m['events_per_s']:,.0f} of {expected} events/s without "
                 "falling behind, so the producer did not deliver the load (Kafka or network trouble, see tools.log). "
                 "The stage says nothing about the consumers.")
     lines += ["", f"Pass criteria: no notification later than {SLA_SECONDS:.0f} s and none failed; the API answers "

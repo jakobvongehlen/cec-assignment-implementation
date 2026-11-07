@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
-# Keeps a load test run in git: copies loadtest/out/<run> to loadtest/results/<run>
-# with the report, the raw numbers, the plan and the logs. Logs are compressed
-# (xz), without color codes and with lines cut at 400 characters (a producer
-# that can't deliver a message dumps it as bytes, a few hundred MB per run).
-# producer-config.json is left out: plan.py makes it again from plan.json.
-#
-# Usage: loadtest/keep.sh <run> [<run> ...]   (directory names in loadtest/out)
+# Copies loadtest/out/<run> to loadtest/results/<run> to keep it in git: report,
+# numbers, plan and logs (xz, no colors, lines cut at 400 characters).
+# Usage: loadtest/keep.sh <run> [<run> ...]
 set -euo pipefail
 cd "$(dirname "$0")"
 for run in "$@"; do
