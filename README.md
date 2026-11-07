@@ -5,22 +5,25 @@ Python consumers read experiment events from Kafka, store averaged measurements 
 ## Architecture
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"lineColor": "#64748b", "textColor": "#0f172a", "edgeLabelBackground": "#ffffff"}}}%%
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "lineColor": "#64748b", "textColor": "#0f172a", "edgeLabelBackground": "#ffffff"}}}%%
 flowchart TB
-    subgraph course[" Course · AWS eu-west-1 "]
-        producer("Experiment producer")
-        kafka[("Kafka<br/>topic experiment, 16 partitions")]
-    end
+    subgraph page[" "]
+        direction TB
+        subgraph course[" Course · AWS eu-west-1 "]
+            producer("Experiment producer")
+            kafka[("Kafka<br/>topic experiment, 16 partitions")]
+        end
 
-    subgraph vm[" Group VM · t3a.medium · 2 vCPU, 4 GB RAM, 19 GB disk "]
-        consumers("16 consumers<br/>Python, one per partition")
-        db[("Postgres")]
-        api("HTTP API<br/>Rust, caches finished experiments")
-        mon("Monitoring<br/>Prometheus, Grafana, cAdvisor")
-    end
+        subgraph vm[" Group VM "]
+            consumers("16 consumers<br/>Python, one per partition")
+            db[("Postgres")]
+            api("HTTP API<br/>Rust, caches finished experiments")
+            mon("Monitoring<br/>Prometheus, Grafana, cAdvisor")
+        end
 
-    notify("Notifications service<br/>course")
-    clients("HTTP clients<br/>load generator, researchers")
+        notify("Notifications service<br/>course")
+        clients("HTTP clients<br/>load generator, researchers")
+    end
 
     producer -->|"1 event per sensor per second"| kafka
     kafka -->|"1 partition per consumer"| consumers
@@ -36,8 +39,9 @@ flowchart TB
     class producer,kafka,notify,clients external
     class consumers,db,api service
     class mon monitor
+    style page fill:#ffffff,stroke:#ffffff
     style vm fill:#ffffff,stroke:#64748b,stroke-width:2px,color:#0f172a
-    style course fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style course fill:#ffffff,stroke:#cbd5e1,color:#334155
 ```
 
 ## Consumers
@@ -47,21 +51,6 @@ flowchart TB
 ## HTTP API
 
 Rust service in [`src/http-api-rust`](src/http-api-rust) on port 3003, built on axum and tokio with tokio-postgres and a deadpool connection pool. Compose builds it because `.env` sets `API_IMPL=rust`. [`src/http-api`](src/http-api) contains the earlier FastAPI version with the same endpoints, SQL and responses. `API_IMPL=` deploys that one instead.
-
-### Endpoints
-
-| Request | Returns |
-|---|---|
-| `GET /temperature?experiment-id=<id>&start-time=<ts>&end-time=<ts>` | Measurements with `start-time <= timestamp <= end-time` |
-| `GET /temperature/out-of-range?experiment-id=<id>` | Measurements whose temperature was outside the experiment's range |
-
-Timestamps are Unix seconds. A measurement is the average over all sensors of the experiment. Only measurements from the experiment phase are stored, not from stabilization. Both endpoints return a JSON array sorted by timestamp, or `[]`:
-
-```json
-[{"timestamp": 1727512345.0, "temperature": 21.4}]
-```
-
-A missing or non-numeric parameter returns 422 with a FastAPI-style error body. A database error or timeout returns 500.
 
 ### Request path
 
@@ -78,7 +67,10 @@ The service is one process with `WORKERS` threads (2 on the VM). All threads sha
 
 ### Failure handling
 
-A request may spend at most `DB_TIMEOUT` (5 s) on the database, including the wait for a pooled connection, and then returns 500. Before this limit, requests waited indefinitely when Postgres stalled. They kept their client connections open until the service ran out of file descriptors and accepted no connections. Compose also raises the open file limit to 65,536, because Docker's default of 1,024 ran out at about 1,000 concurrent connections. A cache refresh is aborted after 60 s, so a hung query can't stop later refreshes. On SIGTERM the server finishes open requests before it exits.
+- **Database timeout.** A request may spend at most `DB_TIMEOUT` (5 s) on the database, including the wait for a pooled connection, and then returns 500. Without it, requests waited indefinitely when Postgres stalled and kept their client connections open until the API ran out of file descriptors.
+- **Open file limit.** Compose raises it to 65,536. Docker's default of 1,024 ran out at about 1,000 concurrent connections.
+- **Cache refresh.** A refresh is aborted after 60 s, so a hung query can't block later refreshes.
+- **Shutdown.** On SIGTERM the server finishes open requests before it exits.
 
 ### Performance
 
@@ -95,23 +87,14 @@ Configuration and running without Docker: [`src/http-api-rust/README.md`](src/ht
 
 ## Bottlenecks and learnings
 
-Measured on the VM with experiments of 2 sensors at 1 sample/s ([load test](loadtest/README.md)). The consumers handle 450 concurrent experiments, about 1,000 events/s, with notification p99 of 0.9 s. At 500 experiments notifications arrive late. The required 100 experiments use about 40% of the CPU, with notification p99 of 0.4 s.
+The VM handles 450 concurrent experiments, about 1,000 events/s, with notification p99 under 1 s. The requirement is 100 ([load test](loadtest/README.md)).
 
-| Bottleneck | Limit | Raise it with |
-|---|---|---|
-| VM CPU, 2 vCPU | Full at about 1,000 events/s, 1.4 ms CPU per event. Reached first. | A larger instance, cheaper events |
-| Consumers | Python, one message at a time: 1.1 ms CPU per event | Batched inserts, a compiled consumer |
-| Postgres | One commit per insert: 0.3 ms CPU per event | Commits per batch, a separate host |
-| Kafka | 16 partitions, set by the course: at most 16 consumers in parallel | Not in our control |
-| CPU credits | t3a includes 20% per vCPU (0.4 cores), 100 experiments use about 0.7. Beyond the saved credits this costs $0.05 per vCPU hour, or the VM is throttled in standard mode | A non-burstable instance |
-| Disk, 19 GB | About 40 KB per experiment | Cleanup, a larger volume |
+| Bottleneck | Limit |
+|---|---|
+| VM CPU, 2 vCPU | 1.4 ms CPU per event: 1.1 ms in the consumer, 0.3 ms in Postgres. Reached first. |
+| Kafka | 16 partitions, so at most 16 consumers in parallel |
+| CPU credits | The instance includes 0.4 cores; 100 experiments use about 0.7 |
 
-The API (10,385 req/s at 0.51 cores) and the notifications (15 threads per consumer, about 0.1 s per request) never limited a test. Memory stayed at about 1.1 GB of 4 GB at the CPU limit.
-
-What we learned:
-
-1. On a 2 vCPU VM, capacity is set by CPU per event, not by the number of consumers. Sixteen processes can't use more than two cores, and scaling consumers inside the VM only adds rebalances, each of which pauses the partitions it moves. We replaced the autoscaler with 16 fixed consumers, one per partition, with static membership.
-2. A partition can only move between consumers safely if the next owner knows the state. Experiment state lives in Postgres and offsets are committed only up to the oldest incomplete measurement, so a restart or handover loses no events, and events read twice have no effect.
-3. After downtime, old events are worth less than new ones. A notification later than 10 s misses the requirement anyway, so after the whole group was down the consumers skip events older than 5 s instead of replaying the backlog.
-4. Every wait needs a limit. The load test showed that requests without a database timeout, combined with Docker's default of 1,024 open files, could make the API stop accepting connections.
-5. Moving the hot path out of Python paid off more than tuning it. With the same number of workers, the Rust API serves about 4 times as many cached requests as the FastAPI version.
+1. On 2 vCPUs, capacity depends on CPU per event, not on the number of consumers. More consumers only add rebalances.
+2. Keeping experiment state in Postgres and committing only completed work lets a partition move to another consumer without losing events.
+3. Every wait needs a limit. Without a database timeout, and with Docker's default open file limit, the API stopped accepting connections under load.
