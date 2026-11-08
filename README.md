@@ -32,7 +32,20 @@ flowchart TB
 
 ## Consumers
 
-## Notifications
+Consumer's code is responsible for consuming events (sensor measurements for multiple experiments) from Kafka message broker, handling each experiment's state, averaging measurements, calling the notifier api for events that must be reported and finally storing the avg. measurements into a postgreSQL database in order to let the HTTP-API process them. We use a fixed number of consumer that are consuming from the Kafka's partitons. Some key points of the implementations are the following:
+
+- 16 consumers in the same Kafka consumer group, one per partition. Events are keyed by experiment ID, so all events of an experiment are processed by the same consumer.
+- Experiments are represented through a custom data structure containing information about the current state, nummber of sensors, etc.
+- Each consumer holds a in-memory dictionary of experiments which is used for averaging measurements and calling the notifier component when it is needed (stabilization and out-of-range events).
+- Only avg. measurements are then persisted to the deployed database. 
+
+## Notifier
+
+The single-consumer integrates `notifier.py` to notify the Notifications Service via HTTP POST requests whenever temperature thresholds trigger alerts:
+1. **`Stabilized`**: Sent during the `stabilization_started` phase when the average temperature first reaches the experiment's target range `[lower_threshold, upper_threshold]`.
+2. **`OutOfRange`**: Sent during the `experiment_started` phase whenever the average temperature exceeds the upper threshold or drops below the lower threshold.
+
+Notifications are dispatched asynchronously via a background thread pool (`ThreadPoolExecutor`), ensuring that the Kafka consumer loop is never blocked by HTTP calls and keeping alert latency well within the required 10-second SLO.
 
 ## HTTP API
 
@@ -46,6 +59,8 @@ Rust service in [`src/http-api-rust`](src/http-api-rust) on port 3003, built wit
 On the VM it served 10,385 req/s with p99 latency of 28 ms ([results](loadtest/results/vm-20261105-api.md)). Locally it handles 2.7 to 4 times the requests of the FastAPI version.
 
 ## Database
+
+Our Postgres stores two different tables: measurements (avg. measurements for each experiment with an additional flag that indicates whether they were out-of-range), and a table for the terminated experiments (a tuple is an experiment that is terminated, used in HTTP-API caching technique). All queries regarding the database creation are in `db_queries.sql` file.
 
 ## Bottlenecks and learnings
 
